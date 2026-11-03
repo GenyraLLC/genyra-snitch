@@ -145,6 +145,11 @@ fn dhcp(b: &[u8], src: IpAddr) -> Option<(IpAddr, String, String)> {
     })?;
     Some((ip, hostname?, mac(&b[28..34])))
 }
+#[cfg(not(target_os = "linux"))]
+fn media() -> Value {
+    json!({"mic":[],"camera":[],"supported":false,"reason":"Native media access provider has not been ported"})
+}
+#[cfg(target_os = "linux")]
 fn media() -> Value {
     let start = Instant::now();
     let mut mic = BTreeSet::new();

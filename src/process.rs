@@ -1,8 +1,11 @@
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
-    fs,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
+};
+#[cfg(target_os = "linux")]
+use std::{
+    fs,
     time::{Duration, Instant},
 };
 
@@ -25,10 +28,12 @@ pub struct Key {
 #[derive(Default, Clone)]
 pub struct Table {
     sockets: HashMap<Key, Owner>,
+    #[cfg(target_os = "linux")]
     cached: HashMap<u64, Owner>,
     pub incomplete: bool,
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn endpoint(s: &str) -> Option<(IpAddr, u16)> {
     let (addr, port) = s.split_once(':')?;
     let port = u16::from_str_radix(port, 16).ok()?;
@@ -58,6 +63,7 @@ fn endpoint(s: &str) -> Option<(IpAddr, u16)> {
 }
 
 impl Table {
+    #[cfg(target_os = "linux")]
     pub fn refresh(&mut self) {
         let start = Instant::now();
         let mut rows = Vec::new();
@@ -187,6 +193,79 @@ impl Table {
             .into_iter()
             .filter_map(|(k, i)| self.cached.get(&i).cloned().map(|o| (k, o)))
             .collect();
+    }
+    #[cfg(not(target_os = "linux"))]
+    pub fn refresh(&mut self) {
+        use netstat2::{get_sockets_info, AddressFamilyFlags, ProtocolFlags, ProtocolSocketInfo};
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always),
+        );
+        let mut next = HashMap::new();
+        self.incomplete = false;
+        match get_sockets_info(
+            AddressFamilyFlags::IPV4 | AddressFamilyFlags::IPV6,
+            ProtocolFlags::TCP | ProtocolFlags::UDP,
+        ) {
+            Ok(sockets) => {
+                for socket in sockets.into_iter().take(100_000) {
+                    // Never assign an ambiguous socket to an arbitrary process.
+                    if socket.associated_pids.len() != 1 {
+                        self.incomplete = true;
+                        continue;
+                    }
+                    let pid = socket.associated_pids[0];
+                    let Some(process) = system.process(sysinfo::Pid::from_u32(pid)) else {
+                        self.incomplete = true;
+                        continue;
+                    };
+                    let ppid = process.parent();
+                    let owner = Owner {
+                        pid,
+                        name: process.name().to_string_lossy().into_owned(),
+                        cmdline: process
+                            .cmd()
+                            .iter()
+                            .map(|s| s.to_string_lossy())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                            .chars()
+                            .take(4096)
+                            .collect(),
+                        ppid: ppid.map(|p| p.as_u32()),
+                        parent_name: ppid
+                            .and_then(|p| system.process(p))
+                            .map(|p| p.name().to_string_lossy().into_owned()),
+                    };
+                    let key = match socket.protocol_socket_info {
+                        ProtocolSocketInfo::Tcp(s) => Key {
+                            proto: "TCP",
+                            local: s.local_addr,
+                            port: s.local_port,
+                            remote: s.remote_addr,
+                            rport: s.remote_port,
+                        },
+                        ProtocolSocketInfo::Udp(s) => Key {
+                            proto: "UDP",
+                            local: s.local_addr,
+                            port: s.local_port,
+                            remote: if s.local_addr.is_ipv4() {
+                                IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+                            } else {
+                                IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+                            },
+                            rport: 0,
+                        },
+                    };
+                    next.insert(key, owner);
+                }
+            }
+            Err(_) => self.incomplete = true,
+        }
+        self.sockets = next;
     }
     pub fn lookup(&self, key: &Key) -> Option<Owner> {
         if let Some(o) = self.sockets.get(key) {

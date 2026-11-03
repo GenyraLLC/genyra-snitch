@@ -1,13 +1,20 @@
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::{
     fs,
-    io::{Read, Write},
-    os::unix::fs::OpenOptionsExt,
+    io::Write,
     path::{Path, PathBuf},
 };
 pub fn data_dir() -> PathBuf {
     if let Some(path) = std::env::var_os("SNITCH_DATA_DIR") {
         return PathBuf::from(path);
     }
+    #[cfg(target_os = "windows")]
+    let base = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_default());
+    #[cfg(target_os = "macos")]
+    let base = PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+        .join("Library/Application Support");
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -25,14 +32,13 @@ pub fn token(data: &Path) -> Result<String, Box<dyn std::error::Error>> {
     let path = data.join("api_token.txt");
     if !path.exists() {
         let mut bytes = [0u8; 32];
-        fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+        getrandom::fill(&mut bytes).map_err(|e| format!("OS random generator: {e}"))?;
         let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)
-        {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        match options.open(&path) {
             Ok(mut file) => {
                 file.write_all(token.as_bytes())?;
                 file.sync_all()?;
@@ -67,6 +73,7 @@ pub fn frontend() -> PathBuf {
 }
 /// Return newly created root-owned data files to the explicit desktop owner.
 /// No symlinks are followed, and the data directory must already belong to uid.
+#[cfg(unix)]
 pub fn restore_owner(data: &Path) {
     use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
     if unsafe { libc::geteuid() } != 0 {
@@ -111,6 +118,8 @@ pub fn restore_owner(data: &Path) {
         }
     }
 }
+#[cfg(not(unix))]
+pub fn restore_owner(_data: &Path) {}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,15 +132,18 @@ mod tests {
         let b = token(&dir).unwrap();
         assert_eq!(a, b);
         assert_eq!(a.len(), 64);
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(
-            fs::metadata(dir.join("api_token.txt"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(dir.join("api_token.txt"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
         fs::remove_dir_all(dir).unwrap();
     }
 }

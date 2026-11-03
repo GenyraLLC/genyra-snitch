@@ -1,11 +1,12 @@
 //! One bounded worker and a metadata-keyed file hash cache. No executor fanout.
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs,
     io::Read,
-    os::unix::fs::MetadataExt,
     path::Path,
     time::Instant,
 };
@@ -57,7 +58,18 @@ impl Integrity {
         if !meta.is_file() {
             return None;
         }
+        #[cfg(unix)]
         let key = (meta.dev(), meta.ino(), meta.mtime(), meta.mtime_nsec());
+        #[cfg(windows)]
+        let key = {
+            use std::os::windows::fs::MetadataExt;
+            (
+                meta.file_size(),
+                meta.creation_time(),
+                meta.last_write_time() as i64,
+                0,
+            )
+        };
         if let Some((old, hash)) = self.cache.get(path) {
             if *old == key {
                 return Some(hash.clone());
@@ -85,8 +97,10 @@ impl Integrity {
         Some(hash)
     }
     pub fn status(&self, enabled: bool) -> Value {
-        json!({"enabled":enabled,"platform":"linux","capabilities":{"exe_hash_watch":true,"name_mismatch":true,"rwx_scan":true,"module_paths":true,"merkle_modules":true},"checked":self.checked.len(),"baselines":self.baselines.len(),"findings":self.findings,"hash_cache":self.cache.len()})
+        let linux = cfg!(target_os = "linux");
+        json!({"enabled":enabled,"platform":std::env::consts::OS,"capabilities":{"exe_hash_watch":true,"name_mismatch":linux,"rwx_scan":linux,"module_paths":linux,"merkle_modules":linux},"checked":self.checked.len(),"baselines":self.baselines.len(),"findings":self.findings,"hash_cache":self.cache.len()})
     }
+    #[cfg(target_os = "linux")]
     pub fn check(&mut self, pid: u32, force: bool) -> Vec<Value> {
         let proc = format!("/proc/{pid}");
         let stat = fs::read_to_string(format!("{proc}/stat")).unwrap_or_default();
@@ -204,6 +218,51 @@ impl Integrity {
         }
         for finding in &mut out {
             finding["ts"] = json!(chrono::Utc::now().timestamp_millis() as f64 / 1000.);
+            if self.findings.len() >= 200 {
+                self.findings.pop_front();
+            }
+            self.findings.push_back(finding.clone());
+        }
+        out
+    }
+    #[cfg(not(target_os = "linux"))]
+    pub fn check(&mut self, pid: u32, force: bool) -> Vec<Value> {
+        use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+        let mut system = System::new();
+        let id = Pid::from_u32(pid);
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[id]),
+            true,
+            ProcessRefreshKind::nothing().with_exe(UpdateKind::Always),
+        );
+        let Some(process) = system.process(id) else {
+            return vec![];
+        };
+        let identity = (pid, process.start_time().to_string());
+        if !force && self.checked.contains(&identity) {
+            return vec![];
+        }
+        // A bounded cache of process identities, not just PIDs (which recycle).
+        if self.checked.len() >= 4000 {
+            self.checked.clear();
+        }
+        self.checked.insert(identity);
+        let Some(exe) = process.exe() else {
+            return vec![];
+        };
+        let exe = exe.to_string_lossy().into_owned();
+        let Some(hash) = self.hash_file(&exe) else {
+            return vec![];
+        };
+        let mut out = vec![];
+        if let Some(old) = self.baselines.get(&exe) {
+            if old != &hash {
+                out.push(json!({"type":"BINARY_CHANGED","severity":"critical","pid":pid,"exe":exe,"expected":old,"actual":hash,"ts":chrono::Utc::now().timestamp_millis() as f64/1000.}));
+            }
+        } else if self.baselines.len() < 2000 {
+            self.baselines.insert(exe, hash);
+        }
+        for finding in &out {
             if self.findings.len() >= 200 {
                 self.findings.pop_front();
             }

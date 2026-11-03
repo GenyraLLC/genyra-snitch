@@ -13,6 +13,7 @@ api_token.txt
 /dist
 
 /agent/target
+/desktop/target
 __pycache__/
 *.pyc
 

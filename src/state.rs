@@ -999,6 +999,14 @@ impl Engine {
         v["media"] = self.media.clone();
         v
     }
+    /// Disconnected clients get a complete snapshot on reconnect. Drop only
+    /// transient delivery queues here; history, alerts and graph stay intact.
+    pub fn discard_events(&mut self) {
+        self.dirty.clear();
+        self.events_packets.clear();
+        self.events_alerts.clear();
+        self.removed.clear();
+    }
     pub fn drain_events(&mut self) -> Value {
         let dirty = std::mem::take(&mut self.dirty);
         let nodes: Vec<_> = self
@@ -1020,6 +1028,40 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn disconnected_delivery_preserves_reconnect_snapshot_and_history() {
+        let mut e = Engine::new(
+            Path::new("/nonexistent"),
+            "test".into(),
+            json!({}),
+            vec![],
+            HashSet::new(),
+        );
+        e.learn_device(
+            "192.168.1.2".parse().unwrap(),
+            Some("00:11:22:33:44:55".into()),
+            Some("fixture".into()),
+        );
+        e.alert(
+            "FIXTURE",
+            "192.168.1.2",
+            "warning",
+            "fixture alert".into(),
+            json!({}),
+        );
+        let snapshot = e.init();
+        let history_count = e.pending.alerts.len();
+        assert!(!e.dirty.is_empty());
+        e.discard_events();
+        assert_eq!(e.init(), snapshot);
+        assert_eq!(e.pending.alerts.len(), history_count);
+        assert!(
+            e.dirty.is_empty()
+                && e.events_packets.is_empty()
+                && e.events_alerts.is_empty()
+                && e.removed.is_empty()
+        );
+    }
     #[test]
     fn domain_suffix_boundaries() {
         let c = Classifier::new(Path::new("/nonexistent"));

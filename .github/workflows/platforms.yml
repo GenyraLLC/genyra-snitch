@@ -1,0 +1,44 @@
+name: Native platform ports (experimental)
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  ports:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: macOS capture library
+        if: runner.os == 'macOS'
+        run: brew install libpcap
+      - name: Npcap development libraries (no driver redistribution)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://npcap.com/dist/npcap-sdk-1.17.zip -OutFile "$env:RUNNER_TEMP/npcap.zip"
+          Expand-Archive "$env:RUNNER_TEMP/npcap.zip" "$env:RUNNER_TEMP/npcap"
+          "LIBPCAP_LIBDIR=$env:RUNNER_TEMP/npcap/Lib/x64" >> $env:GITHUB_ENV
+          "LIBPCAP_VER=1.10.6" >> $env:GITHUB_ENV
+      - run: cargo check --locked --all-targets
+      - run: cargo test --locked --no-run
+      - name: macOS unit tests
+        if: runner.os == 'macOS'
+        run: cargo test --locked
+      - run: cargo test --locked --manifest-path desktop/Cargo.toml
+      - name: Native release builds
+        run: |
+          cargo build --release --locked
+          cargo build --release --locked --manifest-path desktop/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: experimental-native-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            target/release/genyra-snitch
+            target/release/genyra-snitch.exe
+            desktop/target/release/genyra-snitch-desktop
+            desktop/target/release/genyra-snitch-desktop.exe
+          if-no-files-found: error

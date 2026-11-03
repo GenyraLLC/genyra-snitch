@@ -15,7 +15,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 pcap = "2"
 maxminddb = "0.32"
-rusqlite = "0.38"
+rusqlite = { version = "0.38", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 libc = "0.2"
 tower-http = { version = "0.6", features = ["fs"] }
@@ -25,11 +25,19 @@ ipnet = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
+getrandom = "0.3"
 flate2 = "1"
 serde_yaml_ng = "0.10"
 frida = { version = "0.17.2", features = ["auto-download"] }
 axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+netstat2 = "0.11"
+sysinfo = "0.37"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Diagnostics_Debug", "Win32_System_Memory"] }
 
 [profile.release]
 lto = "thin"

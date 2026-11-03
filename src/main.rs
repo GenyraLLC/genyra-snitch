@@ -1,4 +1,8 @@
 mod anomaly;
+#[cfg(target_os = "linux")]
+mod ask;
+#[cfg(not(target_os = "linux"))]
+#[path = "platform/ask.rs"]
 mod ask;
 mod blocklist;
 mod deep;
@@ -8,10 +12,15 @@ mod firewall;
 mod forensics;
 mod integrations;
 mod integrity;
+#[cfg(target_os = "linux")]
+mod kernel;
+#[cfg(not(target_os = "linux"))]
+#[path = "platform/kernel.rs"]
 mod kernel;
 mod observer;
 mod packet;
 mod paths;
+mod platform;
 mod process;
 mod rules;
 mod security;
@@ -32,6 +41,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use state::Engine;
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::{
     collections::HashMap,
@@ -311,7 +321,7 @@ fn capture(engine: Arc<Mutex<Engine>>, owners: Arc<RwLock<process::Table>>, stop
     };
     let link = cap.get_datalink().0;
     engine.lock().unwrap().linktype = link;
-    if ![1, 113, 276, 12, 101].contains(&link) {
+    if ![0, 1, 108, 113, 276, 12, 101].contains(&link) {
         fail(&engine, format!("Unsupported link type {link}"));
         return;
     }
@@ -327,12 +337,19 @@ fn capture(engine: Arc<Mutex<Engine>>, owners: Arc<RwLock<process::Table>>, stop
             }
         }
         // libpcap nonblocking reads plus poll: idle interfaces never spin.
-        let mut fd = libc::pollfd {
-            fd: cap.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
+        #[cfg(unix)]
+        let ready = {
+            let mut fd = libc::pollfd {
+                fd: cap.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            unsafe { libc::poll(&mut fd, 1, 100) }
         };
-        let ready = unsafe { libc::poll(&mut fd, 1, 100) };
+        // Npcap does not expose a POSIX fd. Nonblocking reads plus a short
+        // sleep after an empty batch bound CPU and shutdown latency.
+        #[cfg(windows)]
+        let ready = 0;
         if ready < 0 {
             let e = std::io::Error::last_os_error();
             if e.kind() != std::io::ErrorKind::Interrupted {
@@ -357,6 +374,10 @@ fn capture(engine: Arc<Mutex<Engine>>, owners: Arc<RwLock<process::Table>>, stop
             for (b, len) in &frames {
                 e.packet(b, *len, link, &table);
             }
+        }
+        #[cfg(windows)]
+        if frames.is_empty() {
+            thread::sleep(Duration::from_millis(25));
         }
         if last_tick.elapsed() >= Duration::from_secs(1) {
             let mut e = engine.lock().unwrap();
@@ -446,11 +467,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let data = paths::data_dir();
     if !data.exists() {
-        use std::os::unix::fs::DirBuilderExt;
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&data)?;
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&data)?;
     }
     if env::args().any(|arg| arg == "--check") {
         let db = storage::open(&data)?;
@@ -698,8 +722,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut tick = tokio::time::interval(Duration::from_millis(250));
             while !a.stop.load(Ordering::Relaxed) {
                 tick.tick().await;
-                let event = a.engine.lock().unwrap().drain_events();
                 if a.events.receiver_count() > 0 {
+                    let event = a.engine.lock().unwrap().drain_events();
                     if event["removed"]
                         .as_array()
                         .is_some_and(|ids| !ids.is_empty())
@@ -709,6 +733,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .send(json!({"type":"nodes_removed","ids":event["removed"]}));
                     }
                     let _ = a.events.send(event);
+                } else {
+                    a.engine.lock().unwrap().discard_events();
                 }
             }
         })
@@ -728,10 +754,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shutdown = {
         let stop = stop.clone();
         async move {
+            #[cfg(unix)]
             let mut term =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                     .expect("SIGTERM handler");
+            #[cfg(unix)]
             tokio::select! {_=tokio::signal::ctrl_c()=>{},_=term.recv()=>{},_=async {while !stop.load(Ordering::Relaxed){tokio::time::sleep(Duration::from_millis(100)).await;}}=>{}}
+            #[cfg(not(unix))]
+            tokio::select! {_=tokio::signal::ctrl_c()=>{},_=async {while !stop.load(Ordering::Relaxed){tokio::time::sleep(Duration::from_millis(100)).await;}}=>{}}
             stop.store(true, Ordering::Relaxed);
         }
     };

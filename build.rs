@@ -1,5 +1,8 @@
 use std::{env, path::PathBuf, process::Command};
 fn main() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
+        return;
+    }
     println!("cargo:rerun-if-changed=kernel/snitch.bpf.c");
     let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("snitch.bpf.o");
     let mut clang = Command::new(env::var("CLANG").unwrap_or_else(|_| "clang".into()));

@@ -21,6 +21,11 @@ impl Sinkhole {
         json!({"listening":{"80":s.listening.get("v4:80").copied().unwrap_or(false)||s.listening.get("v6:80").copied().unwrap_or(false),"443":s.listening.get("v4:443").copied().unwrap_or(false)||s.listening.get("v6:443").copied().unwrap_or(false)},"listeners":s.listening,"hits":s.hits,"errors":s.errors})
     }
 }
+#[cfg(not(target_os = "linux"))]
+fn original_destination(_: &tokio::net::TcpStream, _: bool) -> Option<std::net::SocketAddr> {
+    None
+}
+#[cfg(target_os = "linux")]
 fn original_destination(
     socket: &tokio::net::TcpStream,
     ipv6: bool,

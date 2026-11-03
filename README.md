@@ -7,6 +7,10 @@ Genyra Snitch is a native Rust fork of [Snitch by aiXis Studio](https://github.c
 
 This is a **Linux x86-64 alpha**, not a claim of cross-platform parity. The 77 upstream API routes are implemented; Windows and macOS backends have not been ported. Native detection algorithms can produce different scores from Python. [Feature coverage and limits](docs/FEATURES.md) distinguish implementation from validation.
 
+The **full native desktop and cross-platform rewrite is in progress**, on the
+`native-desktop` branch. See [current work and outstanding gaps](docs/NATIVE-REWRITE.md).
+The existing alpha does not establish full application or cross-platform parity.
+
 ### What you get
 
 - A live connection graph and map, per-process attribution, LAN device discovery, offline GeoIP/ASN, traffic history and a bounded forensic packet buffer.

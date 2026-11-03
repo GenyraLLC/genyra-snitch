@@ -3,14 +3,15 @@ use crate::{
     App,
 };
 use serde_json::{json, Value};
+use std::{collections::HashMap, fs};
+#[cfg(target_os = "linux")]
 use std::{
-    collections::HashMap,
-    fs,
     io::{Read, Seek, SeekFrom},
     os::fd::{AsRawFd, FromRawFd},
     time::Duration,
 };
 
+#[cfg(target_os = "linux")]
 pub fn hollow(pid: u32) -> Value {
     let result = (|| -> Result<Value, String> {
         let exe = fs::read_link(format!("/proc/{pid}/exe")).map_err(|e| e.to_string())?;
@@ -70,6 +71,15 @@ pub fn hollow(pid: u32) -> Value {
     })();
     result.unwrap_or_else(|e| json!({"ok":false,"pid":pid,"error":e}))
 }
+#[cfg(not(target_os = "linux"))]
+pub fn hollow(pid: u32) -> Value {
+    json!({"ok":false,"pid":pid,"error":"Read-only executable memory comparison is not yet ported to this OS"})
+}
+#[cfg(not(target_os = "linux"))]
+pub fn perf(pid: u32, _: f64) -> Value {
+    json!({"ok":false,"pid":pid,"error":"Hardware counter provider is not yet ported to this OS"})
+}
+#[cfg(target_os = "linux")]
 pub fn perf(pid: u32, seconds: f64) -> Value {
     let result = (|| -> Result<Value, String> {
         let seconds = seconds.clamp(0.2, 10.);

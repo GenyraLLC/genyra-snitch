@@ -7,6 +7,7 @@ use axum::http::{Method, StatusCode};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+#[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
 use std::{
     collections::HashMap,
@@ -273,29 +274,7 @@ pub fn api(
         }
         ("/processes/kill", _, true) | ("/processes/suspend", _, true) => {
             let pid = pid(body)?;
-            let name = fs::read_to_string(format!("/proc/{pid}/comm"))
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let stopped = fs::read_to_string(format!("/proc/{pid}/stat"))
-                .ok()
-                .and_then(|s| {
-                    s.rsplit_once(')')
-                        .and_then(|(_, s)| s.split_whitespace().next())
-                        .map(|s| s == "T" || s == "t")
-                })
-                .unwrap_or(false);
-            let sig = if path.ends_with("kill") {
-                libc::SIGKILL
-            } else if stopped {
-                libc::SIGCONT
-            } else {
-                libc::SIGSTOP
-            };
-            if unsafe { libc::kill(pid as i32, sig) } != 0 {
-                return Err(bad(std::io::Error::last_os_error().to_string()));
-            }
-            Ok(json!({"ok":true,"pid":pid,"name":name,"suspended":sig==libc::SIGSTOP}))
+            crate::platform::control_process(pid, path.ends_with("kill")).map_err(bad)
         }
         ("/alerts/rules/sigma", _, true) => {
             let (imported, mut skipped) =
@@ -527,7 +506,11 @@ fn firewall_rules(a: &App) -> Value {
 }
 fn firewall_status(a: &App) -> Value {
     let s = config(a);
-    json!({"supported":command_exists("nft")||command_exists("iptables"),"platform":"linux","demo":crate::demo::enabled(),"lockdown":s["firewall_lockdown"]==true,"rules":firewall_rules(a),"blocked_counts":a.engine.lock().unwrap().blocked_counts})
+    #[cfg(target_os = "linux")]
+    let supported = command_exists("nft");
+    #[cfg(not(target_os = "linux"))]
+    let supported = crate::platform::firewall::supported();
+    json!({"supported":supported,"platform":std::env::consts::OS,"demo":crate::demo::enabled(),"lockdown":s["firewall_lockdown"]==true,"rules":firewall_rules(a),"blocked_counts":a.engine.lock().unwrap().blocked_counts})
 }
 fn validate_firewall(body: &Value) -> Result<(), String> {
     let kind = body["kind"].as_str().unwrap_or("");
@@ -607,6 +590,14 @@ pub(crate) fn add_firewall_rule(a: &App, body: &Value) -> ApiResult {
     save(a, "firewall_rules", json!(rules))?;
     Ok(json!({"rule":rule,"rules":rules}))
 }
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn sync_firewall(a: &App) -> Result<(), String> {
+    if crate::demo::enabled() {
+        return Ok(());
+    }
+    crate::platform::firewall::sync(&config(a))
+}
+#[cfg(target_os = "linux")]
 pub(crate) fn sync_firewall(a: &App) -> Result<(), String> {
     if crate::demo::enabled() {
         return Ok(());
@@ -1393,6 +1384,14 @@ fn audit(a: &App) -> Value {
     }
     json!({"score":score,"period":"last 500 alerts","alert_counts":counts,"critical":critical,"warning":warning,"findings":{"high_risk_countries":risky,"unresolved_hosts":unresolved.into_iter().take(50).collect::<Vec<_>>(),"cleartext_alerts":counts.get("CLEARTEXT").copied().unwrap_or(0),"dns_tunnel_alerts":counts.get("DNS_TUNNEL").copied().unwrap_or(0),"threat_hits":counts.get("THREAT_HIT").copied().unwrap_or(0)},"firewall":{"active_rules":rules,"lockdown":lockdown,"blocked_attempts":blocked,"supported":command_exists("nft"),"platform":"linux"},"threat_intel":ti_config(a),"integrity":integrity,"recommendations":recs})
 }
+#[cfg(not(target_os = "linux"))]
+fn sandbox(_: &Value) -> ApiResult {
+    Err(error(
+        StatusCode::NOT_IMPLEMENTED,
+        "Network sandbox provider has not been ported to this OS",
+    ))
+}
+#[cfg(target_os = "linux")]
 fn sandbox(body: &Value) -> ApiResult {
     let path = body["path"]
         .as_str()

@@ -22,6 +22,16 @@ pub fn parse(b: &[u8], link: i32) -> Option<Packet<'_>> {
         1 => (14, u16be(b, 12)?),   // Ethernet
         113 => (16, u16be(b, 14)?), // Linux cooked v1
         276 => (20, u16be(b, 0)?),  // Linux cooked v2
+        // BSD/macOS and Npcap loopback headers carry a four-byte address
+        // family. The IP version is portable across host-endian AF values.
+        0 | 108 => (
+            4,
+            match b.get(4)? >> 4 {
+                4 => 0x800,
+                6 => 0x86dd,
+                _ => return None,
+            },
+        ),
         12 | 101 => (0, if b.first()? >> 4 == 4 { 0x800 } else { 0x86dd }),
         _ => return None,
     };
