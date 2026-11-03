@@ -26,7 +26,10 @@ impl Feed {
             runtime.block_on(async move {
                 let url=format!("{}/ws",connection.base.replacen("http://","ws://",1));
                 loop {
-                    if !*active.borrow(){if active.changed().await.is_err(){break;}continue;}
+                    // Never hold watch::Ref over an await: that read lock
+                    // would block the UI's first set_active write forever.
+                    let enabled=*active.borrow_and_update();
+                    if !enabled {if active.changed().await.is_err(){break;}continue;}
                     let mut request=match url.as_str().into_client_request(){Ok(request)=>request,Err(_)=>break};
                     let Ok(token)=connection.token.parse()else{break;};request.headers_mut().insert("X-Snitch-Token",token);
                     let config=WebSocketConfig::default().max_message_size(Some(16*1024*1024)).max_frame_size(Some(16*1024*1024));
@@ -36,7 +39,8 @@ impl Feed {
                             loop {
                                 tokio::select! {
                                     changed=active.changed()=>{
-                                        if changed.is_err()||!*active.borrow(){let _=tokio::time::timeout(Duration::from_secs(1),socket.close(None)).await;break;}
+                                        let enabled=*active.borrow_and_update();
+                                        if changed.is_err()||!enabled {let _=tokio::time::timeout(Duration::from_secs(1),socket.close(None)).await;break;}
                                     }
                                     message=socket.next()=>{
                                         match message {
@@ -161,6 +165,26 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inactive_receiver_does_not_lock_desktop_mode_changes() {
+        let connection =
+            Connection::new("http://127.0.0.1:9".into(), "synthetic-event-token".into()).unwrap();
+        let feed = Feed::new(connection, egui::Context::default());
+        let (done, received) = mpsc::channel();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            for _ in 0..10 {
+                feed.set_active(true);
+                std::thread::sleep(Duration::from_millis(5));
+                feed.set_active(false);
+            }
+            drop(feed);
+            let _ = done.send(());
+        });
+        received
+            .recv_timeout(Duration::from_secs(2))
+            .expect("event receiver blocked the desktop mode writer");
+    }
     #[test]
     fn removal_and_reset_do_not_leave_stale_nodes_or_edges() {
         let mut state = State::default();
