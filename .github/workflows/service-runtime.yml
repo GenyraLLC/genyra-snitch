@@ -1,10 +1,13 @@
 name: Native macOS service runtime
 on:
+  push:
+    branches: [native-desktop]
+    paths: ['.github/workflows/service-runtime.yml', 'tests/macos-service.sh']
   workflow_dispatch:
     inputs:
       artifact_run:
         description: Successful native-platform job run providing the macOS build
-        required: true
+        required: false
 permissions:
   contents: read
   actions: read
@@ -13,10 +16,23 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - name: Select available native macOS artifact
+        id: native
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED_RUN: ${{ inputs.artifact_run }}
+        run: |
+          if [[ -n "$SELECTED_RUN" ]]; then
+            native_run="$SELECTED_RUN"
+          else
+            native_run="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" --jq '[.artifacts[] | select(.name == "experimental-native-macOS-ARM64" and .expired == false)] | max_by(.created_at) | .workflow_run.id')"
+          fi
+          [[ "$native_run" =~ ^[0-9]+$ ]]
+          echo "run=$native_run" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
           name: experimental-native-macOS-ARM64
-          run-id: ${{ inputs.artifact_run }}
+          run-id: ${{ steps.native.outputs.run }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - run: brew install libpcap
       - run: chmod +x target/release/genyra-snitch
