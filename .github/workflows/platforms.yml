@@ -23,6 +23,15 @@ jobs:
           Expand-Archive "$env:RUNNER_TEMP/npcap.zip" "$env:RUNNER_TEMP/npcap"
           "LIBPCAP_LIBDIR=$env:RUNNER_TEMP/npcap/Lib/x64" >> $env:GITHUB_ENV
           "LIBPCAP_VER=1.10.6" >> $env:GITHUB_ENV
+      - name: Windows shared SQLite (isolate Frida's private SQLite symbols)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          vcpkg install sqlite3:x64-windows
+          "SQLITE3_LIB_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/lib" >> $env:GITHUB_ENV
+          "SQLITE3_INCLUDE_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/include" >> $env:GITHUB_ENV
+          "SQLITE3_STATIC=0" >> $env:GITHUB_ENV
+          "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" >> $env:GITHUB_PATH
       - run: cargo check --locked --all-targets
       - run: cargo test --locked --no-run
       - name: macOS unit tests
@@ -33,12 +42,17 @@ jobs:
         run: |
           cargo build --release --locked
           cargo build --release --locked --manifest-path desktop/Cargo.toml
+      - name: Include Windows database runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Copy-Item "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/sqlite3.dll" target/release/sqlite3.dll
       - uses: actions/upload-artifact@v4
         with:
           name: experimental-native-${{ runner.os }}-${{ runner.arch }}
           path: |
             target/release/genyra-snitch
             target/release/genyra-snitch.exe
+            target/release/sqlite3.dll
             desktop/target/release/genyra-snitch-desktop
             desktop/target/release/genyra-snitch-desktop.exe
           if-no-files-found: error

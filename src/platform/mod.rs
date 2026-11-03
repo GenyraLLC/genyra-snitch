@@ -3,6 +3,44 @@
 #[cfg(not(target_os = "linux"))]
 pub mod firewall;
 
+pub fn init_capture_runtime() -> Result<(), String> {
+    #[cfg(windows)]
+    unsafe {
+        use std::os::windows::ffi::OsStringExt;
+        use windows_sys::Win32::System::{
+            LibraryLoader::{
+                AddDllDirectory, SetDefaultDllDirectories, LOAD_LIBRARY_SEARCH_SYSTEM32,
+                LOAD_LIBRARY_SEARCH_USER_DIRS,
+            },
+            SystemInformation::GetSystemDirectoryW,
+        };
+        let mut buffer = [0u16; 32768];
+        let length = GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) as usize;
+        if length == 0 || length >= buffer.len() {
+            return Err("Cannot resolve the Windows system directory".into());
+        }
+        let path = std::path::PathBuf::from(std::ffi::OsString::from_wide(&buffer[..length]))
+            .join("Npcap");
+        if path.join("wpcap.dll").is_file() {
+            use std::os::windows::ffi::OsStrExt;
+            let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+            if SetDefaultDllDirectories(
+                LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_USER_DIRS,
+            ) == 0
+                || AddDllDirectory(wide.as_ptr()).is_null()
+            {
+                return Err("Cannot initialize the protected Npcap library path".into());
+            }
+        } else {
+            return Err(
+                "Npcap is not installed. Install it from https://npcap.com/ before live capture"
+                    .into(),
+            );
+        }
+    }
+    Ok(())
+}
+
 pub fn control_process(pid: u32, terminate: bool) -> Result<serde_json::Value, String> {
     #[cfg(unix)]
     {

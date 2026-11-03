@@ -1,8 +1,10 @@
 //! Linux LAN and media observation without Python or per-packet syscalls.
 use crate::{state::Engine, App};
 use serde_json::{json, Value};
+#[cfg(target_os = "linux")]
+use std::collections::BTreeSet;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::HashMap,
     fs,
     io::BufRead,
     net::{IpAddr, Ipv4Addr},

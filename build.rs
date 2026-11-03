@@ -1,5 +1,11 @@
 use std::{env, path::PathBuf, process::Command};
 fn main() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        // Npcap lives in a protected system subdirectory. Delay-load lets
+        // main establish a safe search path before the first capture call.
+        println!("cargo:rustc-link-arg=/DELAYLOAD:wpcap.dll");
+        println!("cargo:rustc-link-lib=delayimp");
+    }
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
         return;
     }

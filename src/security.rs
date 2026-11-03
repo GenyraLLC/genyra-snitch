@@ -12,10 +12,15 @@ use std::os::unix::process::CommandExt;
 use std::{
     collections::HashMap,
     fs,
-    io::{Read, Write},
-    net::{IpAddr, ToSocketAddrs},
-    process::{Command, Stdio},
+    io::Read,
+    net::IpAddr,
     time::{Duration, Instant},
+};
+#[cfg(target_os = "linux")]
+use std::{
+    io::Write,
+    net::ToSocketAddrs,
+    process::{Command, Stdio},
 };
 
 type CompiledCondition = (Value, Option<regex::Regex>);

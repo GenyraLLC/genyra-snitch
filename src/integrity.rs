@@ -3,11 +3,12 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
+#[cfg(target_os = "linux")]
+use std::path::Path;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs,
     io::Read,
-    path::Path,
     time::Instant,
 };
 
@@ -25,6 +26,7 @@ fn hex(bytes: impl AsRef<[u8]>) -> String {
 pub fn sha(bytes: impl AsRef<[u8]>) -> String {
     hex(Sha256::digest(bytes.as_ref()))
 }
+#[cfg(any(target_os = "linux", test))]
 pub fn merkle(mut leaves: Vec<String>) -> String {
     leaves.sort();
     if leaves.is_empty() {

@@ -1,10 +1,11 @@
 use serde::Serialize;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
 };
 #[cfg(target_os = "linux")]
 use std::{
+    collections::HashSet,
     fs,
     time::{Duration, Instant},
 };

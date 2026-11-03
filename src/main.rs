@@ -484,6 +484,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("database and native libraries ready");
         return Ok(());
     }
+    platform::init_capture_runtime()?;
     // Reuse the established secret. Never generate a replacement or print it.
     let token = paths::token(&data)?;
     let conn = storage::open(&data)?;

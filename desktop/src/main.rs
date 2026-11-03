@@ -1,6 +1,7 @@
 //! Native desktop: one window, one bounded I/O worker, no browser runtime.
 //! A hidden/minimized window suspends polling; only the active view refreshes.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+mod scene;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use serde_json::{json, Value};
 use std::{
@@ -173,6 +174,7 @@ impl Worker {
 
 struct Desktop {
     worker: Worker,
+    scene: scene::Scene,
     panel: usize,
     values: BTreeMap<String, Value>,
     refresh: Instant,
@@ -190,6 +192,12 @@ struct Desktop {
     rule: Value,
     settings: Value,
     settings_dirty: bool,
+    read_only: bool,
+    last_capture_check: Instant,
+    capture_path: Option<PathBuf>,
+    capture_after: Instant,
+    capture_requested: bool,
+    quit_after_capture: bool,
     child: Option<OwnedCollector>,
     stop: Arc<AtomicBool>,
 }
@@ -206,8 +214,23 @@ impl Desktop {
         visuals.selection.bg_fill = Color32::from_rgb(77, 64, 38);
         visuals.selection.stroke.color = GOLD;
         cc.egui_ctx.set_visuals(visuals);
+        let mut style = (*cc.egui_ctx.style()).clone();
+        for (kind, size) in [
+            (egui::TextStyle::Heading, 24.),
+            (egui::TextStyle::Body, 16.),
+            (egui::TextStyle::Button, 15.),
+            (egui::TextStyle::Small, 12.),
+        ] {
+            style
+                .text_styles
+                .insert(kind, egui::FontId::proportional(size));
+        }
+        style.spacing.item_spacing = Vec2::new(10., 7.);
+        cc.egui_ctx.set_style(style);
+        let read_only = connection.read_only;
         Self {
             worker: Worker::new(connection, cc.egui_ctx.clone()),
+            scene: scene::Scene::default(),
             panel: 0,
             values: BTreeMap::new(),
             refresh: Instant::now() - Duration::from_secs(10),
@@ -225,6 +248,12 @@ impl Desktop {
             rule: json!({"name":"New rule","field":"remote_ip","op":"cidr","value":"","severity":"warning","enabled":true}),
             settings: json!({}),
             settings_dirty: false,
+            read_only,
+            last_capture_check: Instant::now() - Duration::from_secs(15),
+            capture_path: None,
+            capture_after: Instant::now() + Duration::from_secs(5),
+            capture_requested: false,
+            quit_after_capture: false,
             child,
             stop: Arc::new(AtomicBool::new(false)),
         }
@@ -235,97 +264,14 @@ impl Desktop {
             .cloned()
             .unwrap_or(Value::Null)
     }
-    fn matches(&self, value: &Value) -> bool {
-        self.filter.is_empty()
-            || value
-                .to_string()
-                .to_lowercase()
-                .contains(&self.filter.to_lowercase())
-    }
     fn graph(&mut self, ui: &mut egui::Ui, map: bool) {
-        let value = self.current();
-        let nodes: Vec<_> = value["nodes"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|n| n["id"] != "local" && self.matches(n))
-            .collect();
-        ui.label(
-            RichText::new(format!(
-                "{} connections · click a destination to investigate",
-                nodes.len()
-            ))
-            .color(MUTED),
-        );
-        let (response, painter) = ui.allocate_painter(
-            Vec2::new(ui.available_width(), ui.available_height().max(240.)),
-            egui::Sense::click(),
-        );
-        let rect = response.rect.shrink(28.);
-        let center = rect.center();
-        if map {
-            for i in 0..=6 {
-                let x = egui::lerp(rect.x_range(), i as f32 / 6.);
-                painter.line_segment(
-                    [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                    egui::Stroke::new(1_f32, Color32::from_gray(35)),
-                );
-            }
-            for i in 0..=4 {
-                let y = egui::lerp(rect.y_range(), i as f32 / 4.);
-                painter.line_segment(
-                    [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                    egui::Stroke::new(1_f32, Color32::from_gray(35)),
-                );
-            }
-        } else {
-            painter.circle_filled(center, 26., Color32::from_rgb(49, 43, 29));
-            painter.text(
-                center,
-                egui::Align2::CENTER_CENTER,
-                "LOCAL",
-                egui::FontId::proportional(12.),
-                GOLD,
-            );
-        }
-        let shown = nodes.len().min(256);
-        for (index, node) in nodes.into_iter().take(shown).enumerate() {
-            let point = if map {
-                let (Some(lon), Some(lat)) = (node["lon"].as_f64(), node["lat"].as_f64()) else {
-                    continue;
-                };
-                egui::pos2(
-                    rect.left() + (lon as f32 + 180.) / 360. * rect.width(),
-                    rect.top() + (90. - lat as f32) / 180. * rect.height(),
-                )
-            } else {
-                let angle = index as f32 * std::f32::consts::TAU / shown.max(1) as f32;
-                let radius = rect.width().min(rect.height()) * 0.42;
-                center + Vec2::new(angle.cos(), angle.sin()) * radius
-            };
-            let color = match node["category"].as_str().unwrap_or("") {
-                "tracking" => Color32::from_rgb(234, 112, 96),
-                "local" => MUTED,
-                _ => GOLD,
-            };
-            if !map {
-                painter.line_segment(
-                    [center, point],
-                    egui::Stroke::new(1_f32, Color32::from_gray(48)),
-                );
-            }
-            painter.circle_filled(point, 5., color);
-            let hit = egui::Rect::from_center_size(point, Vec2::splat(18.));
-            let item = ui.interact(hit, response.id.with(index), egui::Sense::click());
-            item.clone().on_hover_text(format!(
-                "{}\n{} · {}",
-                node["label"].as_str().unwrap_or(""),
-                node["ip"].as_str().unwrap_or(""),
-                human_bytes(node["bytes"].as_u64().unwrap_or(0))
-            ));
-            if item.clicked() {
-                self.selected = Some(node.clone());
-            }
+        if let Some(id) = self.scene.show(ui, map, &self.filter, !self.paused) {
+            self.selected = self
+                .values
+                .get("/graph")
+                .and_then(|graph| graph["nodes"].as_array())
+                .and_then(|nodes| nodes.iter().find(|node| node["id"] == id))
+                .cloned();
         }
     }
     fn connections(&mut self, ui: &mut egui::Ui) {
@@ -471,6 +417,46 @@ impl Desktop {
 
 impl eframe::App for Desktop {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        if self.capture_path.is_some() {
+            for event in ctx.input(|i| i.events.clone()) {
+                if let egui::Event::Screenshot { image, .. } = event {
+                    let path = self.capture_path.take().unwrap();
+                    let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+                        use image::ImageEncoder;
+                        let mut options = std::fs::OpenOptions::new();
+                        options.write(true).create_new(true);
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::OpenOptionsExt;
+                            options.mode(0o600);
+                        }
+                        let file = options.open(path)?;
+                        let bytes: Vec<u8> =
+                            image.pixels.iter().flat_map(|p| p.to_array()).collect();
+                        image::codecs::png::PngEncoder::new(file).write_image(
+                            &bytes,
+                            image.width() as u32,
+                            image.height() as u32,
+                            image::ExtendedColorType::Rgba8,
+                        )?;
+                        Ok(())
+                    })();
+                    if let Err(error) = result {
+                        eprintln!("Renderer capture: {error}");
+                    }
+                    if self.quit_after_capture {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+            }
+            if !self.capture_requested
+                && self.values.contains_key("/graph")
+                && Instant::now() > self.capture_after
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                self.capture_requested = true;
+            }
+        }
         while let Ok(reply) = self.worker.replies.try_recv() {
             self.worker.busy = false;
             match reply.result {
@@ -494,6 +480,9 @@ impl eframe::App for Desktop {
                         if reply.path == "/settings" && !self.settings_dirty {
                             self.settings = value.clone();
                         }
+                        if reply.path == "/graph" {
+                            self.scene.ingest(&value);
+                        }
                         self.values.insert(reply.path, value);
                     }
                 }
@@ -504,18 +493,26 @@ impl eframe::App for Desktop {
             }
         }
         let hidden = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+        if hidden {
+            return;
+        }
         if !hidden
             && !self.paused
             && !self.worker.busy
-            && self.refresh.elapsed() >= Duration::from_secs(2)
+            && self.refresh.elapsed() >= Duration::from_secs(if self.panel < 3 { 1 } else { 2 })
         {
-            self.worker.send(Job::Read(PANELS[self.panel].1.into()));
+            if self.last_capture_check.elapsed() >= Duration::from_secs(10) {
+                self.worker.send(Job::Read("/capture/status".into()));
+                self.last_capture_check = Instant::now();
+            } else {
+                self.worker.send(Job::Read(PANELS[self.panel].1.into()));
+            }
             self.refresh = Instant::now();
         }
         // No continuously running animation or redraw loop. Visible views
         // wake at the chosen polling rate; worker replies wake immediately.
         if !hidden && !self.paused {
-            ctx.request_repaint_after(Duration::from_secs(2));
+            ctx.request_repaint_after(Duration::from_secs(if self.panel < 3 { 1 } else { 2 }));
         }
         egui::TopBottomPanel::top("header")
             .exact_height(78.)
@@ -529,9 +526,59 @@ impl eframe::App for Desktop {
                     );
                     ui.separator();
                     ui.heading(RichText::new("Snitch").color(GOLD));
+                    if let Some(status) = self.values.get("/capture/status") {
+                        let capturing = status["capturing"] == true;
+                        ui.colored_label(
+                            if capturing {
+                                Color32::from_rgb(99, 193, 143)
+                            } else {
+                                MUTED
+                            },
+                            if capturing {
+                                "Capturing"
+                            } else {
+                                "Capture stopped"
+                            },
+                        );
+                        ui.label(
+                            RichText::new(status["interface"].as_str().unwrap_or(""))
+                                .small()
+                                .color(MUTED),
+                        );
+                        if !self.read_only
+                            && ui
+                                .add_enabled(
+                                    !self.worker.busy,
+                                    egui::Button::new(if capturing {
+                                        "Stop capture"
+                                    } else {
+                                        "Start capture"
+                                    }),
+                                )
+                                .clicked()
+                        {
+                            self.worker.write(
+                                if capturing {
+                                    "/capture/stop"
+                                } else {
+                                    "/capture/start"
+                                },
+                                json!({}),
+                            );
+                            self.last_capture_check = Instant::now() - Duration::from_secs(15);
+                        }
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.checkbox(&mut self.paused, "Pause refresh");
-                        ui.label(RichText::new("NATIVE RUST · PREVIEW").small().color(MUTED));
+                        ui.checkbox(&mut self.paused, "Pause live view");
+                        ui.label(
+                            RichText::new(if self.read_only {
+                                "READ-ONLY PREVIEW"
+                            } else {
+                                "NATIVE RUST · PREVIEW"
+                            })
+                            .small()
+                            .color(MUTED),
+                        );
                     });
                 });
             });
@@ -541,7 +588,28 @@ impl eframe::App for Desktop {
             .show(ctx, |ui| {
                 ui.add_space(12.);
                 for (index, (name, _)) in PANELS.iter().enumerate() {
-                    if ui.selectable_label(self.panel == index, *name).clicked() {
+                    if [0, 4, 10].contains(&index) {
+                        ui.add_space(12.);
+                        ui.label(
+                            RichText::new(match index {
+                                0 => "VISIBILITY",
+                                4 => "SECURITY",
+                                _ => "WORKSPACE",
+                            })
+                            .size(10.)
+                            .color(MUTED),
+                        );
+                        ui.add_space(5.);
+                    }
+                    if ui
+                        .add_sized(
+                            [162., 29.],
+                            egui::Button::new(*name)
+                                .selected(self.panel == index)
+                                .frame(self.panel == index),
+                        )
+                        .clicked()
+                    {
                         self.panel = index;
                         self.filter.clear();
                         self.refresh = Instant::now() - Duration::from_secs(10);
@@ -870,19 +938,35 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         (connection, Some(owned))
     };
     connection.read_only = args.iter().any(|arg| arg == "--read-only");
+    let capture = arg("--render-check")
+        .or_else(|| arg("--screenshot"))
+        .map(PathBuf::from);
+    let render_check = arg("--render-check").is_some();
+    let initial_panel = if arg("--view").as_deref() == Some("map") {
+        1
+    } else {
+        0
+    };
     let icon =
         eframe::icon_data::from_png_bytes(include_bytes!("../../ui/public/brand/genyra-icon.png"))?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1320., 850.])
             .with_min_inner_size([960., 640.])
+            .with_visible(!render_check)
             .with_icon(icon),
         ..Default::default()
     };
     eframe::run_native(
         "Genyra Snitch",
         options,
-        Box::new(move |cc| Ok(Box::new(Desktop::new(cc, connection, child)))),
+        Box::new(move |cc| {
+            let mut app = Desktop::new(cc, connection, child);
+            app.panel = initial_panel;
+            app.capture_path = capture;
+            app.quit_after_capture = render_check;
+            Ok(Box::new(app))
+        }),
     )?;
     Ok(())
 }
