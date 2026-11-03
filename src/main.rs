@@ -828,6 +828,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = env::args().collect();
+    if args.iter().any(|s| s == "--help" || s == "-h") {
+        println!("Genyra Snitch {}\nUsage: genyra-snitch [--data-dir PATH] [--port PORT] [--bind IP] [--interface NAME] [--demo] [--check] [--version]\nStartup service: genyra-snitch service config|install|start|stop|status|uninstall [--data-dir PATH]\nEnvironment: SNITCH_DATA_DIR, SNITCH_TOKEN, SNITCH_IFACE, SNITCH_FRONTEND_DIR, SNITCH_TLS_CERT, SNITCH_TLS_KEY\nService setup and privileges: docs/BACKGROUND-SERVICE.md",env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     if args.get(1).is_some_and(|s| s == "service") {
         let action = args.get(2).ok_or(
             "Usage: genyra-snitch service install|start|stop|status|uninstall [--data-dir PATH]",
