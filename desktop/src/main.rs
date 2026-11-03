@@ -1199,6 +1199,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let icon =
         eframe::icon_data::from_png_bytes(include_bytes!("../../ui/public/brand/genyra-icon.png"))?;
     let options = eframe::NativeOptions {
+        // Hidden renderer checks have no compositor frame callbacks. Waiting
+        // for vblank there can stall NVIDIA's Wayland EGL swap indefinitely.
+        vsync: !render_check,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1320., 850.])
             .with_min_inner_size([960., 640.])
