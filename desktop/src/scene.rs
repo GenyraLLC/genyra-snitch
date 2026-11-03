@@ -8,7 +8,8 @@ use std::{
 };
 
 const GOLD: Color32 = Color32::from_rgb(219, 184, 101);
-const MAX_NODES: usize = 384;
+const MAX_NODES: usize = 4096;
+const PHYSICS_NODES: usize = 384;
 #[derive(Clone)]
 struct Body {
     id: String,
@@ -107,6 +108,13 @@ fn direction(h: u64) -> Vec2 {
     Vec2::new(a.cos(), a.sin())
 }
 impl Scene {
+    pub fn reset_traffic(&mut self) {
+        self.previous.clear();
+        self.pulses.clear();
+        self.last_snapshot = None;
+        self.active_edges = 0;
+        self.bytes_per_second = 0;
+    }
     pub fn ingest(&mut self, value: &Value) {
         let now = Instant::now();
         if self.last_snapshot.is_none() {
@@ -241,15 +249,16 @@ impl Scene {
         }
         let dt = self.last_step.elapsed().as_secs_f32().clamp(0.005, 0.05);
         self.last_step = Instant::now();
-        let mut forces = vec![Vec2::ZERO; self.bodies.len()];
-        for (i, a) in self.bodies.iter().enumerate() {
+        let simulated = self.bodies.len().min(PHYSICS_NODES);
+        let mut forces = vec![Vec2::ZERO; simulated];
+        for (i, a) in self.bodies.iter().take(simulated).enumerate() {
             forces[i] += (a.anchor - a.position) * 0.6 - a.position * 0.07;
             // Distance from the local node varies with stable topology and
             // traffic volume; destinations do not share a circular rail.
             let radius = 110. + (hash(&a.id) % 240) as f32;
             let distance = a.position.length().max(1.);
             forces[i] -= a.position / distance * (distance - radius) * 0.22;
-            for j in i + 1..self.bodies.len() {
+            for j in i + 1..simulated {
                 let delta = a.position - self.bodies[j].position;
                 let squared = delta.length_sq().max(100.);
                 let repulsion = delta / squared.sqrt() * (17000. / squared).min(40.);

@@ -9,6 +9,7 @@ repository = "https://github.com/GenyraLLC/genyra-snitch"
 homepage = "https://genyra.com"
 
 [dependencies]
+genyra-common = { path = "crates/common" }
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "process", "io-util"] }
 serde = { version = "1", features = ["derive"] }
@@ -36,6 +37,7 @@ netstat2 = "0.11"
 sysinfo = "0.37"
 
 [target.'cfg(windows)'.dependencies]
+windows-service = "0.8"
 winreg = "0.55"
 rusqlite = "0.38"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Diagnostics_Debug", "Win32_System_Memory", "Win32_System_LibraryLoader", "Win32_System_SystemInformation"] }
@@ -49,6 +51,9 @@ bindgen = "0.72"
 [profile.release]
 lto = "thin"
 strip = true
+
+[dev-dependencies]
+tempfile = "3"
 
 [patch.crates-io]
 frida = { path = "vendor/frida" }

@@ -11,6 +11,9 @@ The **full native desktop and cross-platform rewrite is in progress**, on the
 `native-desktop` branch. See [current work and outstanding gaps](docs/NATIVE-REWRITE.md).
 The existing alpha does not establish full application or cross-platform parity.
 
+The native desktop also has an optional **background monitoring** mode and native
+startup-service controls. See [setup, privileges and lifecycle](docs/BACKGROUND-SERVICE.md).
+
 ### What you get
 
 - A live connection graph and map, per-process attribution, LAN device discovery, offline GeoIP/ASN, traffic history and a bounded forensic packet buffer.

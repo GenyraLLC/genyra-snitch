@@ -37,6 +37,7 @@ jobs:
       - name: Native collector unit tests
         run: cargo test --locked
       - run: cargo test --locked --manifest-path desktop/Cargo.toml
+      - run: cargo test --locked --manifest-path crates/common/Cargo.toml
       - name: Native release builds
         run: |
           cargo build --release --locked
@@ -45,6 +46,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: Copy-Item "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/sqlite3.dll" target/release/sqlite3.dll
+      - name: Windows native service lifecycle (synthetic traffic)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/windows-service.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: experimental-native-${{ runner.os }}-${{ runner.arch }}

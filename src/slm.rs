@@ -9,9 +9,17 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant},
 };
-#[derive(Default)]
 pub struct Slm {
     cache: Mutex<HashMap<String, (Instant, String)>>,
+    inference: tokio::sync::Semaphore,
+}
+impl Default for Slm {
+    fn default() -> Self {
+        Self {
+            cache: Mutex::new(HashMap::new()),
+            inference: tokio::sync::Semaphore::new(1),
+        }
+    }
 }
 fn endpoint(settings: &Value) -> Option<reqwest::Url> {
     let url = reqwest::Url::parse(
@@ -36,7 +44,12 @@ fn native_binary() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("SNITCH_LLAMA_CLI").map(PathBuf::from) {
         return path.is_file().then_some(path);
     }
-    for name in ["llama-completion", "llama-cli"] {
+    let names = if cfg!(windows) {
+        ["llama-completion.exe", "llama-cli.exe"]
+    } else {
+        ["llama-completion", "llama-cli"]
+    };
+    for name in names {
         if let Some(path) = std::env::var_os("PATH").and_then(|p| {
             std::env::split_paths(&p)
                 .map(|p| p.join(name))
@@ -116,8 +129,34 @@ pub async fn enrich(a: &App, kind: &str, details: &Value, lang: &str) -> Option<
     if cached.is_some() {
         return cached;
     }
+    // A second explanation must never start a second multi-gigabyte model.
+    // The built-in explanation remains available if the short queue is busy.
+    let _permit = tokio::time::timeout(Duration::from_secs(2), a.slm.inference.acquire())
+        .await
+        .ok()?
+        .ok()?;
+    if let Some((_, text)) = a
+        .slm
+        .cache
+        .lock()
+        .unwrap()
+        .get(&key)
+        .filter(|(at, _)| at.elapsed() < Duration::from_secs(300))
+    {
+        return Some(text.clone());
+    }
     let detail = details.to_string().chars().take(600).collect::<String>();
-    let prompt=format!("You are a security assistant inside a local-only network monitor. Explain this alert in {} in at most four short sentences: what it means, why it fired, and what the user should check. No preamble.\nALERT TYPE: {kind}\nDETAILS: {detail}",if lang=="fr"{"French"}else{"English"});
+    let language = match lang {
+        "fr" => "French",
+        "es" => "Spanish",
+        "de" => "German",
+        "ru" => "Russian",
+        "ja" => "Japanese",
+        "pt-BR" => "Portuguese",
+        "zh-CN" => "Chinese",
+        _ => "English",
+    };
+    let prompt=format!("You are a security assistant inside a local-only network monitor. Explain this alert in {language} in at most four short sentences: what it means, why it fired, and what the user should check. No preamble.\nALERT TYPE: {kind}\nDETAILS: {detail}");
     let text = if settings["slm_mode"] == "embedded" {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let path = settings["slm_model_path"].as_str()?;

@@ -25,6 +25,8 @@ mod platform;
 mod process;
 mod rules;
 mod security;
+#[cfg(windows)]
+mod service_host;
 mod sinkhole;
 mod slm;
 mod state;
@@ -460,7 +462,7 @@ fn writer(a: App, stop: Arc<AtomicBool>) {
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     if env::args().any(|arg| arg == "--version") {
         println!("Genyra Snitch {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
@@ -485,6 +487,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("database and native libraries ready");
         return Ok(());
     }
+    let mut instance = genyra_common::Instance::acquire(&data)?;
     if !demo::enabled() {
         platform::init_capture_runtime()?;
     }
@@ -497,14 +500,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
-            "--port" | "--bind" | "--interface" => {
+            "--port" | "--bind" | "--interface" | "--data-dir" => {
                 let value = args
                     .get(index + 1)
                     .ok_or("Missing command-line option value")?;
                 options.insert(args[index].clone(), value.clone());
                 index += 2;
             }
-            "--demo" | "--no-browser" => {
+            "--demo" | "--no-browser" | "--service-run" => {
                 index += 1;
             }
             "--help" | "-h" => {
@@ -620,6 +623,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     listener.set_nonblocking(true)?;
     port = listener.local_addr()?.port();
     a.port = port;
+    let loopback = if bind.is_ipv6() { "[::1]" } else { "127.0.0.1" };
+    instance.publish(&format!(
+        "{}://{loopback}:{port}",
+        if tls.is_some() { "https" } else { "http" }
+    ))?;
+    paths::restore_owner(&data);
+    #[cfg(windows)]
+    service_host::started()?;
     let stop = a.stop.clone();
     let owners = a.owners.clone();
     let table_thread = {
@@ -772,8 +783,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .expect("SIGTERM handler");
             #[cfg(unix)]
             tokio::select! {_=tokio::signal::ctrl_c()=>{},_=term.recv()=>{},_=async {while !stop.load(Ordering::Relaxed){tokio::time::sleep(Duration::from_millis(100)).await;}}=>{}}
-            #[cfg(not(unix))]
-            tokio::select! {_=tokio::signal::ctrl_c()=>{},_=async {while !stop.load(Ordering::Relaxed){tokio::time::sleep(Duration::from_millis(100)).await;}}=>{}}
+            #[cfg(windows)]
+            tokio::select! {_=tokio::signal::ctrl_c()=>{},_=async {while !stop.load(Ordering::Relaxed)&&!service_host::stopping(){tokio::time::sleep(Duration::from_millis(100)).await;}}=>{}}
             stop.store(true, Ordering::Relaxed);
         }
     };
@@ -813,6 +824,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     write_pending(&a, &p)?;
     result?;
     Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<_> = env::args().collect();
+    if args.get(1).is_some_and(|s| s == "service") {
+        let action = args.get(2).ok_or(
+            "Usage: genyra-snitch service install|start|stop|status|uninstall [--data-dir PATH]",
+        )?;
+        println!(
+            "{}",
+            genyra_common::service::manage(&env::current_exe()?, &paths::data_dir(), action)?
+        );
+        return Ok(());
+    }
+    #[cfg(windows)]
+    if args.iter().any(|s| s == "--service-run") {
+        service_host::dispatch()?;
+        return Ok(());
+    }
+    run()
 }
 
 fn serde_urlencoded_query(query: &str) -> Option<HashMap<String, String>> {

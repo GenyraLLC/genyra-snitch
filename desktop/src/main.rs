@@ -1,7 +1,10 @@
 //! Native desktop: one window, one bounded I/O worker, no browser runtime.
 //! A hidden/minimized window suspends polling; only the active view refreshes.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+mod feed;
+mod lifecycle;
 mod scene;
+mod views;
 mod workflows;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use serde_json::{json, Value};
@@ -34,6 +37,7 @@ const PANELS: &[(&str, &str)] = &[
     ("Diagnostics", "/diagnostics"),
     ("Tools & integrations", "/security/ti"),
     ("Exports", "/capture/status"),
+    ("Live packets", "/graph"),
 ];
 
 #[derive(Clone)]
@@ -153,11 +157,13 @@ enum Job {
     Write(reqwest::Method, String, Value),
     ReadMany(Vec<String>),
     Download(String, PathBuf),
+    Service(String, Option<OwnedCollector>),
 }
 struct Reply {
     path: String,
     result: Result<Value, String>,
     mutation: bool,
+    connection: Option<Connection>,
 }
 struct Worker {
     jobs: mpsc::SyncSender<Job>,
@@ -165,7 +171,7 @@ struct Worker {
     busy: bool,
 }
 impl Worker {
-    fn new(connection: Connection, ctx: egui::Context) -> Self {
+    fn new(mut connection: Connection, ctx: egui::Context) -> Self {
         let (jobs, pending) = mpsc::sync_channel::<Job>(1);
         let (completed, replies) = mpsc::sync_channel(1);
         std::thread::Builder::new()
@@ -187,9 +193,33 @@ impl Worker {
                         Job::Write(_, path, _) => (path.clone(), true),
                         Job::ReadMany(_) => ("bundle".into(), false),
                         Job::Download(_, _) => ("export".into(), true),
+                        Job::Service(_, _) => ("service".into(), true),
                     };
-                    let result = match &job {
-                        Job::Download(path, file) => connection.download(&client, path, file),
+                    let mut reconnect=None;
+                    let result = match job {
+                        Job::Download(path, file) => connection.download(&client, &path, &file),
+                        Job::Service(action, foreground) => {
+                            if connection.read_only {
+                                Err("Service controls are disabled in this read-only preview"
+                                    .into())
+                            } else {
+                                drop(foreground);
+                                lifecycle::service_action(&action).and_then(|message|{
+                                    if action=="start" {
+                                        let deadline=Instant::now()+Duration::from_secs(10);
+                                        loop {
+                                            if let Ok((new_connection,_))=lifecycle::discover(&data_dir(),&connection.token) {
+                                                connection=new_connection.clone();reconnect=Some(new_connection);break;
+                                            }
+                                            if Instant::now()>deadline{return Err("The service start was requested but the collector did not become reachable. Check Service status and capture permissions.".into());}
+                                            std::thread::sleep(Duration::from_millis(100));
+                                        }
+                                    }
+                                    let installed=action!="uninstall"&&!message.contains("LoadState=not-found");
+                                    Ok(json!({"ok":true,"message":message,"installed":installed}))
+                                })
+                            }
+                        }
                         Job::ReadMany(paths) => {
                             let mut values = serde_json::Map::new();
                             for path in paths.iter().take(8) {
@@ -200,13 +230,14 @@ impl Worker {
                             }
                             Ok(Value::Object(values))
                         }
-                        _ => connection.request(&client, &job),
+                        job => connection.request(&client, &job),
                     };
                     if completed
                         .send(Reply {
                             path,
                             result,
                             mutation,
+                            connection: reconnect,
                         })
                         .is_err()
                     {
@@ -233,9 +264,13 @@ impl Worker {
 }
 
 struct Desktop {
+    feed: feed::Feed,
+    live: feed::State,
+    feed_connected: bool,
     worker: Worker,
     scene: scene::Scene,
     workflows: workflows::Workflows,
+    views: views::Views,
     panel: usize,
     values: BTreeMap<String, Value>,
     refresh: Instant,
@@ -244,6 +279,8 @@ struct Desktop {
     selected: Option<Value>,
     message: String,
     failure: bool,
+    last_action_path: String,
+    background_error: bool,
     kind: String,
     target: String,
     action: String,
@@ -253,6 +290,7 @@ struct Desktop {
     rule: Value,
     settings: Value,
     settings_dirty: bool,
+    preferences_saving: bool,
     read_only: bool,
     last_capture_check: Instant,
     capture_path: Option<PathBuf>,
@@ -260,6 +298,9 @@ struct Desktop {
     capture_requested: bool,
     quit_after_capture: bool,
     child: Option<OwnedCollector>,
+    keep_monitoring: bool,
+    local_service_controls: bool,
+    service_registration_present: bool,
     stop: Arc<AtomicBool>,
 }
 impl Desktop {
@@ -289,10 +330,17 @@ impl Desktop {
         style.spacing.item_spacing = Vec2::new(10., 7.);
         cc.egui_ctx.set_style(style);
         let read_only = connection.read_only;
+        let local_service_controls = child.is_some()
+            || genyra_common::endpoint(&data_dir())
+                .is_ok_and(|endpoint| endpoint.url == connection.base);
         Self {
+            feed: feed::Feed::new(connection.clone(), cc.egui_ctx.clone()),
+            live: feed::State::default(),
+            feed_connected: false,
             worker: Worker::new(connection, cc.egui_ctx.clone()),
             scene: scene::Scene::default(),
             workflows: workflows::Workflows::default(),
+            views: views::Views::default(),
             panel: 0,
             values: BTreeMap::new(),
             refresh: Instant::now() - Duration::from_secs(10),
@@ -301,15 +349,18 @@ impl Desktop {
             selected: None,
             message: String::new(),
             failure: false,
+            last_action_path: String::new(),
+            background_error: false,
             kind: "ip".into(),
             target: String::new(),
             action: "block".into(),
             rate: 64,
             pid: 0,
             seconds: 5,
-            rule: json!({"name":"New rule","field":"remote_ip","op":"cidr","value":"","severity":"warning","enabled":true}),
-            settings: json!({}),
+            rule: json!({"name":"New rule","field":"remote_ip","op":"cidr","value":"","severity":"warning","action":"alert","enabled":true}),
+            settings: workflows::preferences(&Value::Null),
             settings_dirty: false,
+            preferences_saving: false,
             read_only,
             last_capture_check: Instant::now() - Duration::from_secs(15),
             capture_path: None,
@@ -317,6 +368,9 @@ impl Desktop {
             capture_requested: false,
             quit_after_capture: false,
             child,
+            keep_monitoring: genyra_common::DesktopPreferences::load(&data_dir()).keep_monitoring,
+            local_service_controls,
+            service_registration_present: false,
             stop: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -327,7 +381,8 @@ impl Desktop {
             .unwrap_or(Value::Null)
     }
     fn accept_data(&mut self, path: String, value: Value) {
-        if path == "/settings" {
+        let path = path.split('?').next().unwrap_or(&path).to_string();
+        if path == "/settings" && value["settings"].is_object() {
             self.workflows.load_settings(&value["settings"]);
             if !self.settings_dirty {
                 self.settings = workflows::preferences(&value["settings"]);
@@ -335,11 +390,13 @@ impl Desktop {
         }
         if path == "/graph" {
             self.scene.ingest(&value);
+            self.views.update_graph(&value);
         }
         self.values.insert(path, value);
     }
     fn read_job(&self) -> Job {
         match self.panel {
+            5 => Job::Read(format!("/timeline?minutes={}", self.views.minutes)),
             10 => Job::ReadMany(vec!["/ingest/agents".into(), "/remote/fleet".into()]),
             11 => Job::ReadMany(vec![
                 "/settings".into(),
@@ -362,45 +419,7 @@ impl Desktop {
         }
     }
     fn connections(&mut self, ui: &mut egui::Ui) {
-        let value = self.current();
-        let mut apps: BTreeMap<String, (u64, usize)> = BTreeMap::new();
-        for node in value["nodes"].as_array().into_iter().flatten() {
-            for (name, counts) in node["processes"].as_object().into_iter().flatten() {
-                let app = apps.entry(name.clone()).or_default();
-                app.0 += counts["bytes"].as_u64().unwrap_or(0);
-                app.1 += 1;
-            }
-        }
-        let entries: Vec<_> = apps
-            .into_iter()
-            .filter(|(name, _)| name.to_lowercase().contains(&self.filter.to_lowercase()))
-            .collect();
-        egui_extras::TableBuilder::new(ui)
-            .striped(true)
-            .column(egui_extras::Column::remainder())
-            .column(egui_extras::Column::auto())
-            .column(egui_extras::Column::auto())
-            .header(28., |mut row| {
-                for label in ["Application", "Destinations", "Transferred"] {
-                    row.col(|ui| {
-                        ui.strong(label);
-                    });
-                }
-            })
-            .body(|body| {
-                body.rows(30., entries.len(), |mut row| {
-                    let (name, (bytes, count)) = &entries[row.index()];
-                    row.col(|ui| {
-                        ui.label(name);
-                    });
-                    row.col(|ui| {
-                        ui.label(count.to_string());
-                    });
-                    row.col(|ui| {
-                        ui.label(human_bytes(*bytes));
-                    });
-                })
-            });
+        self.native_apps(ui);
     }
     fn firewall(&mut self, ui: &mut egui::Ui) {
         let value = self.current();
@@ -504,6 +523,27 @@ impl Desktop {
 
 impl eframe::App for Desktop {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        while let Ok(value) = self.feed.messages.try_recv() {
+            let kind = value["type"].as_str().unwrap_or("");
+            if kind == "feed_error" {
+                self.feed_connected = false;
+                continue;
+            }
+            if ["init", "reset"].contains(&kind) {
+                self.scene.reset_traffic();
+                self.feed_connected = true;
+            }
+            if self.live.apply(&value) {
+                if self.panel < 3 || !self.values.contains_key("/graph") {
+                    self.accept_data("/graph".into(), self.live.graph());
+                }
+                self.values
+                    .insert("/alerts".into(), json!({"alerts":self.live.alerts}));
+            }
+            if kind == "capture_status" || kind == "init" {
+                self.values.insert("/capture/status".into(), value);
+            }
+        }
         if self.capture_path.is_some() {
             for event in ctx.input(|i| i.events.clone()) {
                 if let egui::Event::Screenshot { image, .. } = event {
@@ -537,7 +577,7 @@ impl eframe::App for Desktop {
                 }
             }
             if !self.capture_requested
-                && self.values.contains_key("/graph")
+                && self.values.contains_key(PANELS[self.panel].1)
                 && Instant::now() > self.capture_after
             {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
@@ -546,10 +586,20 @@ impl eframe::App for Desktop {
         }
         while let Ok(reply) = self.worker.replies.try_recv() {
             self.worker.busy = false;
+            if let Some(connection) = reply.connection {
+                self.feed = feed::Feed::new(connection, ctx.clone());
+                self.live = feed::State::default();
+                self.feed_connected = false;
+                self.scene.reset_traffic();
+            }
             match reply.result {
                 Ok(value) => {
-                    self.failure = false;
                     if reply.mutation {
+                        if reply.path == "service" && value["ok"] == true {
+                            self.service_registration_present = value["installed"] == true;
+                        }
+                        self.background_error = false;
+                        self.last_action_path = reply.path.clone();
                         // Semantic failures can be HTTP 200. Surface them.
                         self.failure = value["ok"] == false || value["rule"]["applied"] == false;
                         self.message = if self.failure {
@@ -562,8 +612,19 @@ impl eframe::App for Desktop {
                             "Complete".into()
                         };
                         self.values.insert("last_action".into(), value);
+                        if reply.path == "/settings" && self.preferences_saving {
+                            if !self.failure {
+                                self.settings_dirty = false;
+                            }
+                            self.preferences_saving = false;
+                        }
                         self.refresh = Instant::now() - Duration::from_secs(10);
                     } else {
+                        if self.background_error {
+                            self.failure = false;
+                            self.message = "Connected to collector".into();
+                            self.background_error = false;
+                        }
                         if reply.path == "bundle" {
                             if let Value::Object(values) = value {
                                 for (path, value) in values {
@@ -578,10 +639,15 @@ impl eframe::App for Desktop {
                 Err(error) => {
                     self.message = error;
                     self.failure = true;
+                    self.background_error = !reply.mutation;
+                    if reply.path == "/settings" {
+                        self.preferences_saving = false;
+                    }
                 }
             }
         }
         let hidden = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+        self.feed.set_active(!hidden && !self.paused);
         if hidden {
             return;
         }
@@ -594,7 +660,9 @@ impl eframe::App for Desktop {
                 self.worker.send(Job::Read("/capture/status".into()));
                 self.last_capture_check = Instant::now();
             } else {
-                self.worker.send(self.read_job());
+                if !(self.feed_connected && matches!(self.panel, 0..=2 | 15)) {
+                    self.worker.send(self.read_job());
+                }
             }
             self.refresh = Instant::now();
         }
@@ -700,6 +768,9 @@ impl eframe::App for Desktop {
                         .clicked()
                     {
                         self.panel = index;
+                        if index < 3 && self.feed_connected {
+                            self.accept_data("/graph".into(), self.live.graph());
+                        }
                         self.filter.clear();
                         self.refresh = Instant::now() - Duration::from_secs(10);
                     }
@@ -715,7 +786,7 @@ impl eframe::App for Desktop {
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if self.worker.busy {
-                    ui.spinner();
+                    ui.label("Working…");
                 }
                 ui.colored_label(
                     if self.failure {
@@ -765,20 +836,14 @@ impl eframe::App for Desktop {
                 0 => self.graph(ui, false),
                 1 => self.graph(ui, true),
                 2 => self.connections(ui),
+                3 => self.native_devices(ui),
+                4 => self.native_alerts(ui),
+                5 => self.native_timeline(ui),
                 6 => {
                     egui::ScrollArea::vertical().show(ui, |ui| self.firewall(ui));
                 }
                 7 => {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        edit_value(ui, "New alert rule", &mut self.rule);
-                        if ui
-                            .add_enabled(!self.worker.busy, egui::Button::new("Add alert rule"))
-                            .clicked()
-                        {
-                            self.worker.write("/alerts/rules", self.rule.clone());
-                        }
-                        show_value(ui, "Existing rules", &self.current());
-                    });
+                    egui::ScrollArea::vertical().show(ui, |ui| self.native_rules(ui));
                 }
                 8 => {
                     egui::ScrollArea::vertical().show(ui, |ui| self.investigation(ui));
@@ -788,6 +853,8 @@ impl eframe::App for Desktop {
                 }
                 11 => {
                     egui::ScrollArea::vertical().show(ui, |ui| {
+                        self.background_service(ui);
+                        ui.separator();
                         if ui
                             .add_enabled(
                                 self.settings_dirty && !self.worker.busy && !self.read_only,
@@ -797,9 +864,19 @@ impl eframe::App for Desktop {
                         {
                             self.worker
                                 .write("/settings", json!({"settings":self.settings}));
-                            self.settings_dirty = false;
+                            self.preferences_saving = true;
                         }
-                        self.settings_dirty |= edit_value(ui, "Preferences", &mut self.settings);
+                        ui.add_enabled_ui(
+                            !self.read_only
+                                && self
+                                    .values
+                                    .get("/settings")
+                                    .is_some_and(|v| v["settings"].is_object()),
+                            |ui| {
+                                self.settings_dirty |=
+                                    edit_value(ui, "Preferences", &mut self.settings);
+                            },
+                        );
                     });
                 }
                 13 => {
@@ -807,6 +884,15 @@ impl eframe::App for Desktop {
                 }
                 14 => {
                     egui::ScrollArea::vertical().show(ui, |ui| self.native_exports(ui));
+                }
+                15 => {
+                    ui.label("Recent packet metadata from the live collector. This view keeps the latest 128 samples.");
+                    egui::ScrollArea::vertical().show(ui,|ui|{
+                        for packet in self.live.packets.iter().rev() {
+                            let line=format!("{}  {}:{} → {}:{}  {}  {} B",packet["process_name"].as_str().unwrap_or("Unattributed"),text(&packet["src_ip"]),text(&packet["src_port"]),text(&packet["dst_ip"]),text(&packet["dst_port"]),text(&packet["protocol"]),text(&packet["size"]));
+                            if self.filter.is_empty()||line.to_lowercase().contains(&self.filter.to_lowercase()) {ui.monospace(line);}
+                        }
+                    });
                 }
                 _ => {
                     let value = self.current();
@@ -818,7 +904,10 @@ impl eframe::App for Desktop {
     fn on_exit(&mut self, _: Option<&eframe::glow::Context>) {
         self.stop.store(true, Ordering::Relaxed);
         // Only our own backend child is stopped. Attached collectors continue.
-        self.child.take();
+        if let Some(mut child) = self.child.take() {
+            child.keep_running = self.keep_monitoring;
+            drop(child);
+        }
     }
 }
 
@@ -846,7 +935,49 @@ fn human_bytes(n: u64) -> String {
     }
 }
 fn title(s: &str) -> String {
-    s.replace('_', " ")
+    match s {
+        "retention_hours" => "History retention (hours)",
+        "upload_threshold_mb" => "Upload alert threshold (MiB)",
+        "integrity_watch" => "Monitor executable integrity",
+        "kill_switch_enabled" => "Automatically block apps after an upload alert",
+        "ports" => "Ports to monitor (empty means all)",
+        "excluded_processes" => "Apps to exclude from capture",
+        "whitelisted_ips" => "IP addresses to exclude from capture",
+        "watchlist" => "Watched hosts and addresses",
+        "ti_provider" => "Threat provider",
+        "ti_api_key" => "Provider API key",
+        "webhook_enabled" => "Enable webhook notifications",
+        "webhook_url" => "Webhook address",
+        "telegram_chat_id" => "Telegram chat ID",
+        "syslog_addr" => "Syslog destination",
+        "syslog_format" => "Syslog format",
+        "ask_enabled" => "Ask before allowing a new connection",
+        "ask_timeout" => "Decision timeout (seconds)",
+        "ask_failopen" => "Allow the connection if no decision arrives",
+        "ebpf_probe" => "Trace connections in the kernel (Linux)",
+        "gossip_enabled" => "Enable peer indicator synchronization",
+        "gossip_peers" => "Peer collector addresses",
+        "slm_enabled" => "Enable local model explanations",
+        "slm_mode" => "Local model engine",
+        "slm_endpoint" => "Ollama address (loopback only)",
+        "slm_model" => "Model name",
+        "slm_model_path" => "GGUF model file",
+        "conds" => "Conditions",
+        "mac" => "MAC address",
+        "ip" => "IP address",
+        "pid" => "Process ID",
+        "asn" => "Network ASN",
+        _ => {
+            return {
+                let mut text = s.replace('_', " ");
+                if let Some(first) = text.get_mut(..1) {
+                    first.make_ascii_uppercase();
+                }
+                text
+            }
+        }
+    }
+    .into()
 }
 fn show_value(ui: &mut egui::Ui, label: &str, value: &Value) {
     match value {
@@ -1000,28 +1131,18 @@ fn edit_value(ui: &mut egui::Ui, label: &str, value: &mut Value) -> bool {
     changed
 }
 fn data_dir() -> PathBuf {
-    if let Some(path) = std::env::var_os("SNITCH_DATA_DIR") {
-        return path.into();
-    }
-    #[cfg(windows)]
-    let base = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_default());
-    #[cfg(target_os = "macos")]
-    let base = PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
-        .join("Library/Application Support");
-    #[cfg(not(any(windows, target_os = "macos")))]
-    let base = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share")
-        });
-    base.join("genyra-snitch")
+    genyra_common::data_dir()
 }
 struct OwnedCollector {
     child: std::process::Child,
     connection: Connection,
+    keep_running: bool,
 }
 impl Drop for OwnedCollector {
     fn drop(&mut self) {
+        if self.keep_running || self.child.try_wait().is_ok_and(|s| s.is_some()) {
+            return;
+        }
         if let Ok(client) = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(2))
             .no_proxy()
@@ -1061,41 +1182,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             None,
         )
     } else {
-        // Random loopback port and ephemeral token; no desktop machine settings
-        // are compiled into or published with the application.
-        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-        let port = listener.local_addr()?.port();
-        drop(listener);
-        let mut bytes = [0u8; 32];
-        getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
-        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-        let name = if cfg!(windows) {
-            "genyra-snitch.exe"
-        } else {
-            "genyra-snitch"
-        };
-        let backend = std::env::current_exe()?
-            .parent()
-            .ok_or("Executable directory missing")?
-            .join(name);
-        if !backend.is_file() {
-            return Err("Place the collector binary beside the native desktop, or use --connect and --token-file".into());
-        }
-        let mut command = std::process::Command::new(backend);
-        command
-            .env("SNITCH_PORT", port.to_string())
-            .env("SNITCH_TOKEN", &token)
-            .env("SNITCH_DATA_DIR", data_dir());
-        if args.iter().any(|a| a == "--demo") {
-            command.arg("--demo");
-        }
-        let child = command.spawn()?;
-        let connection = Connection::new(format!("http://127.0.0.1:{port}"), token)?;
-        let owned = OwnedCollector {
-            child,
-            connection: connection.clone(),
-        };
-        (connection, Some(owned))
+        lifecycle::connect_or_start(args.iter().any(|a| a == "--demo"))?
     };
     connection.read_only = args.iter().any(|arg| arg == "--read-only");
     let capture = arg("--render-check")
@@ -1104,6 +1191,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let render_check = arg("--render-check").is_some();
     let initial_panel = if arg("--view").as_deref() == Some("map") {
         1
+    } else if arg("--view").as_deref() == Some("settings") {
+        11
     } else {
         0
     };
@@ -1122,6 +1211,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         options,
         Box::new(move |cc| {
             let mut app = Desktop::new(cc, connection, child);
+            if args.iter().any(|a| a == "--background") {
+                app.keep_monitoring = true;
+            }
             app.panel = initial_panel;
             app.capture_path = capture;
             app.quit_after_capture = render_check;

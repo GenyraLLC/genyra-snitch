@@ -14,6 +14,7 @@ api_token.txt
 
 /agent/target
 /desktop/target
+/crates/common/target
 __pycache__/
 *.pyc
 

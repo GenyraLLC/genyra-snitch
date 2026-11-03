@@ -5,9 +5,11 @@ the original feature set and sustained resource measurements. The existing
 Linux alpha and React/Electron UI remain while the replacement is verified.
 
 The experimental `desktop` crate uses egui/eframe. No Electron, Chromium, Node
-or Python runtime is required. One bounded I/O worker polls only the active
-view every two seconds; minimized windows suspend polling. There is no
-continuous background animation. Desktop feature parity is not yet complete.
+or Python runtime is required. One bounded I/O worker handles actions and
+active-view reads; a bounded WebSocket receiver handles live traffic and alerts.
+Minimized windows suspend their polling and stream. Traffic pulses are driven by
+measured byte increases; the renderer sleeps when the scene settles. Desktop
+feature parity is not yet complete.
 
 ```sh
 cargo build --release --locked --manifest-path desktop/Cargo.toml
@@ -18,6 +20,11 @@ for synthetic data. Live capture requires OS capture permissions. To attach
 to a local collector use `--connect http://127.0.0.1:PORT --token-file PATH`.
 Credentials are read locally and never placed in URLs. Personal connections
 and data are not included in the repository.
+
+Settings now includes [optional background monitoring and startup services](BACKGROUND-SERVICE.md).
+The desktop reconnects to a shared collector using persistent local identity;
+an exclusive data-directory lock prevents duplicate collectors. Linux systemd
+user units, macOS LaunchAgents and Windows SCM registration are implemented.
 
 ## Experimental platform adapters
 
