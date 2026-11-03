@@ -1,0 +1,27 @@
+[Unit]
+Description=Genyra Snitch network visibility for %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+Environment=SNITCH_BIND=127.0.0.1
+Environment=SNITCH_PORT=8000
+StateDirectory=genyra-snitch-%i
+StateDirectoryMode=0700
+Environment=SNITCH_DATA_DIR=/var/lib/genyra-snitch-%i
+Environment=SNITCH_FRONTEND_DIR=/usr/local/share/genyra-snitch/ui
+ExecStart=/usr/local/bin/genyra-snitch
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+TasksMax=128
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

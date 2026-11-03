@@ -1,0 +1,216 @@
+{
+  "OUI_TABLE": {
+    "A4C138": [
+      "Apple",
+      "phone"
+    ],
+    "F0DCE2": [
+      "Apple",
+      "phone"
+    ],
+    "3C0754": [
+      "Apple",
+      "phone"
+    ],
+    "8C8590": [
+      "Apple",
+      "phone"
+    ],
+    "ACBC32": [
+      "Apple",
+      "phone"
+    ],
+    "F82793": [
+      "Apple",
+      "phone"
+    ],
+    "8CCE4E": [
+      "Samsung",
+      "phone"
+    ],
+    "A0CBFD": [
+      "Samsung",
+      "phone"
+    ],
+    "5425EA": [
+      "Samsung",
+      "phone"
+    ],
+    "D87D76": [
+      "Samsung",
+      "tv"
+    ],
+    "000C29": [
+      "Cisco",
+      "router"
+    ],
+    "001A2F": [
+      "Cisco",
+      "router"
+    ],
+    "1C1B0D": [
+      "Cisco",
+      "router"
+    ],
+    "44D9E7": [
+      "Cisco",
+      "router"
+    ],
+    "20E52A": [
+      "Netgear",
+      "router"
+    ],
+    "A021B7": [
+      "Netgear",
+      "router"
+    ],
+    "C03F0E": [
+      "Netgear",
+      "router"
+    ],
+    "50C7BF": [
+      "TP-Link",
+      "router"
+    ],
+    "B0487A": [
+      "TP-Link",
+      "router"
+    ],
+    "E894F6": [
+      "TP-Link",
+      "router"
+    ],
+    "F4F26D": [
+      "TP-Link",
+      "router"
+    ],
+    "10BF48": [
+      "ASUS",
+      "router"
+    ],
+    "107B44": [
+      "ASUS",
+      "router"
+    ],
+    "2C4D54": [
+      "ASUS",
+      "router"
+    ],
+    "B827EB": [
+      "Raspberry Pi",
+      "iot"
+    ],
+    "DC8E95": [
+      "Raspberry Pi",
+      "iot"
+    ],
+    "E45F01": [
+      "Raspberry Pi",
+      "iot"
+    ],
+    "8086F2": [
+      "Intel",
+      "pc"
+    ],
+    "A4C3F0": [
+      "Intel",
+      "pc"
+    ],
+    "58A023": [
+      "Intel",
+      "pc"
+    ],
+    "00E04C": [
+      "Realtek",
+      "pc"
+    ],
+    "70FC8F": [
+      "Freebox",
+      "router"
+    ],
+    "001D19": [
+      "Freebox",
+      "router"
+    ],
+    "F4CAE5": [
+      "Freebox",
+      "router"
+    ],
+    "14A9E3": [
+      "Orange",
+      "router"
+    ],
+    "A09169": [
+      "Orange",
+      "router"
+    ],
+    "449F51": [
+      "Bouygues",
+      "router"
+    ],
+    "EC43E6": [
+      "SFR",
+      "router"
+    ],
+    "2485B5": [
+      "SFR",
+      "router"
+    ],
+    "54600A": [
+      "Google",
+      "iot"
+    ],
+    "F88FCA": [
+      "Google",
+      "iot"
+    ],
+    "A47733": [
+      "Google",
+      "iot"
+    ],
+    "A002DC": [
+      "Amazon",
+      "iot"
+    ],
+    "FC65DE": [
+      "Amazon",
+      "iot"
+    ],
+    "B47C9C": [
+      "Amazon",
+      "iot"
+    ],
+    "5CAAFD": [
+      "Sonos",
+      "iot"
+    ],
+    "B8E937": [
+      "Sonos",
+      "iot"
+    ],
+    "7C1E52": [
+      "Microsoft",
+      "pc"
+    ],
+    "28184D": [
+      "Microsoft",
+      "pc"
+    ],
+    "00D9D1": [
+      "Sony",
+      "iot"
+    ],
+    "F8D0AC": [
+      "Sony",
+      "iot"
+    ]
+  },
+  "DEVICE_TYPE_COLORS": {
+    "router": "#f97316",
+    "phone": "#a855f7",
+    "pc": "#06b6d4",
+    "tv": "#ec4899",
+    "iot": "#84cc16",
+    "unknown": "#64748b"
+  }
+}

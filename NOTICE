@@ -1,0 +1,18 @@
+Genyra Snitch — maintained by Genyra LLC
+
+This project is a native Rust fork of Snitch by aiXis Studio and contributors:
+https://github.com/aixisstudio/Snitch
+
+Original source, interface, classifier lists, OUI data, alert explanations,
+protocol contracts and adapted instrumentation retain their upstream copyright
+and AGPL-3.0 notices. See UPSTREAM.json and LICENSE.
+
+Official Genyra wordmarks and icon are fetched from https://genyra.com/branding/;
+asset provenance is recorded in ui/public/brand/PROVENANCE.json.
+
+Genyra branding and new fork work identify the independent Genyra LLC project.
+They do not imply endorsement by aiXis Studio or change the software license.
+
+The vendored Frida Rust binding retains its wxWindows Library Licence notices;
+see vendor/frida/PATCHES.md for the local callback fix. Other dependencies retain
+their respective licenses. Electron packages include Electron and Chromium notices.

@@ -1,0 +1,39 @@
+[package]
+name = "genyra-snitch"
+version = "0.1.0-alpha.2"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "Genyra Snitch — local network visibility and application firewall controls in Rust"
+authors = ["Genyra LLC"]
+repository = "https://github.com/GenyraLLC/genyra-snitch"
+homepage = "https://genyra.com"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "process", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pcap = "2"
+maxminddb = "0.32"
+rusqlite = "0.38"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+libc = "0.2"
+tower-http = { version = "0.6", features = ["fs"] }
+sha2 = "0.10"
+regex = "1"
+ipnet = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+flate2 = "1"
+serde_yaml_ng = "0.10"
+frida = { version = "0.17.2", features = ["auto-download"] }
+axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[patch.crates-io]
+frida = { path = "vendor/frida" }

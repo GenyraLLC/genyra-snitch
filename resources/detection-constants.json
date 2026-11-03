@@ -1,0 +1,61 @@
+{
+  "SUSPICIOUS_PROCESSES": [
+    "at.exe",
+    "bitsadmin.exe",
+    "certutil.exe",
+    "cmd.exe",
+    "cscript.exe",
+    "mshta.exe",
+    "msiexec.exe",
+    "powershell.exe",
+    "regsvr32.exe",
+    "rundll32.exe",
+    "schtasks.exe",
+    "wscript.exe"
+  ],
+  "MEDIA_WHITELIST": [
+    "discord",
+    "discord.exe",
+    "facetime",
+    "ms-teams.exe",
+    "skype",
+    "skype.exe",
+    "slack",
+    "slack.exe",
+    "teams",
+    "teams.exe",
+    "webex",
+    "webex.exe",
+    "whatsapp",
+    "whatsapp.exe",
+    "zoom",
+    "zoom.exe"
+  ],
+  "BEACON_WHITELIST": [
+    "1.0.0.1",
+    "1.1.1.1",
+    "129.6.15.28",
+    "129.6.15.29",
+    "149.112.112.112",
+    "208.67.220.220",
+    "208.67.222.222",
+    "216.239.35.0",
+    "216.239.35.12",
+    "216.239.35.4",
+    "216.239.35.8",
+    "4.2.2.1",
+    "4.2.2.2",
+    "8.8.4.4",
+    "8.8.8.8",
+    "9.9.9.9"
+  ],
+  "CLEARTEXT_PORTS": {
+    "21": "FTP",
+    "23": "Telnet",
+    "25": "SMTP",
+    "80": "HTTP",
+    "110": "POP3",
+    "143": "IMAP",
+    "389": "LDAP"
+  }
+}

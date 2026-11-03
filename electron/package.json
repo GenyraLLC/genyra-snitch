@@ -1,23 +1,21 @@
 {
-  "name": "snitch",
-  "version": "1.6.4",
-  "description": "Snitch \u2014 application firewall and real-time network monitor / pare-feu applicatif et moniteur r\u00e9seau en temps r\u00e9el",
+  "name": "genyra-snitch",
+  "version": "0.1.0-alpha.2",
+  "description": "Genyra Snitch by Genyra LLC \u2014 native network visibility and application firewall controls",
   "main": "main.js",
-  "license": "AGPL-3.0-or-later",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win --x64 --publish never",
-    "build:dir": "electron-builder --win --x64 --dir",
-    "build:mac": "electron-builder --mac --arm64 --publish never",
-    "build:linux": "electron-builder --linux --x64 --publish never"
+    "build:linux": "electron-builder --linux --x64 --publish never",
+    "build:dir": "electron-builder --linux --x64 --dir --publish never"
   },
   "devDependencies": {
     "electron": "^45.0.0",
     "electron-builder": "^26.18.0"
   },
   "build": {
-    "appId": "com.snitch.app",
-    "productName": "Snitch",
+    "appId": "com.genyra.snitch",
+    "productName": "Genyra Snitch",
     "directories": {
       "output": "../dist/installer"
     },
@@ -26,7 +24,8 @@
       "preload.js",
       "splash.html",
       "icon.png",
-      "logo.png"
+      "logo.png",
+      "genyra-light.png"
     ],
     "extraResources": [
       {
@@ -34,75 +33,30 @@
         "to": "icon.png"
       },
       {
-        "from": "../dist/backend/snitch-backend",
-        "to": "snitch-backend"
+        "from": "../target/release/genyra-snitch",
+        "to": "genyra-snitch"
       },
       {
-        "from": "../frontend/dist",
+        "from": "../ui/dist",
         "to": "frontend_dist"
       }
     ],
-    "win": {
-      "target": "nsis",
-      "requestedExecutionLevel": "asInvoker",
-      "icon": "icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Snitch"
-    },
-    "mac": {
-      "target": [
-        "zip",
-        "dmg"
-      ],
-      "category": "public.app-category.utilities",
-      "icon": "icon.png"
-    },
     "linux": {
       "target": [
         "AppImage",
-        "deb",
-        "snap"
+        "deb"
       ],
       "category": "Utility",
       "icon": "icon.png",
-      "synopsis": "See every connection your computer makes - 100% local",
-      "description": "Snitch is a local-first application firewall and network observer: live map of outbound connections, per-process attribution, Sigma rules, offline GeoIP, one-click blocking. No account, no telemetry.",
-      "maintainer": "aiXis Studio",
+      "synopsis": "Know what your apps connect to",
+      "description": "Genyra Snitch by Genyra LLC \u2014 native network visibility and application firewall controls",
+      "maintainer": "Genyra LLC",
       "syncDesktopName": true,
       "artifactName": "${productName}-${arch}.${ext}"
-    },
-    "snap": {
-      "confinement": "strict",
-      "grade": "stable",
-      "plugs": [
-        "network",
-        "network-bind",
-        "network-observe",
-        "desktop",
-        "desktop-legacy",
-        "x11",
-        "wayland",
-        "opengl",
-        "removable-media"
-      ]
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "aixisstudio",
-        "repo": "Snitch"
-      }
-    ]
+    }
   },
-  "homepage": "https://github.com/aixisstudio/Snitch",
-  "desktopName": "Snitch",
-  "author": "aiXis Studio",
-  "dependencies": {
-    "electron-updater": "^6.8.11"
-  }
+  "homepage": "https://github.com/GenyraLLC/genyra-snitch",
+  "desktopName": "Genyra Snitch",
+  "author": "Genyra LLC",
+  "dependencies": {}
 }

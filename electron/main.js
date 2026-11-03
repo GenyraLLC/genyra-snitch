@@ -7,7 +7,7 @@
  *          so we guide the user to npcap.com instead
  *       2. show a splash screen
  *       3. pick a FREE loopback port, generate a per-launch API token
- *          (crypto-random) and spawn the PyInstaller backend with
+ *          (crypto-random) and spawn the native Rust backend with
  *          SNITCH_PORT + SNITCH_TOKEN in its environment
  *       4. wait for the API to answer, then open the main window
  *       5. kill only OUR backend child on quit — never a port sweep
@@ -27,7 +27,7 @@
  *          redistribution externe, donc on guide vers npcap.com
  *       2. afficher un écran de démarrage
  *       3. choisir un port loopback LIBRE, générer un jeton API par lancement
- *          (crypto-aléatoire) et lancer le backend PyInstaller avec
+ *          (crypto-aléatoire) et lancer le backend Rust natif avec
  *          SNITCH_PORT + SNITCH_TOKEN dans son environnement
  *       4. attendre que l'API réponde, puis ouvrir la fenêtre principale
  *       5. tuer uniquement NOTRE enfant backend à la fermeture — jamais de
@@ -62,15 +62,14 @@ const isDev        = !app.isPackaged
 const resourcesDir = isDev ? path.join(__dirname, '..') : process.resourcesPath
 
 const isWindows = process.platform === 'win32'
-const backendName = isWindows ? 'snitch-backend.exe' : 'snitch-backend'
-// EN: ONEDIR PyInstaller layout — the exe lives inside a snitch-backend/ dir.
-// FR: Layout ONEDIR de PyInstaller — l'exe vit dans un dossier snitch-backend/.
+const backendName = isWindows ? 'genyra-snitch.exe' : 'genyra-snitch'
+// The native binary is built by Cargo and copied beside packaged resources.
 const backendExe = isDev
-  ? path.join(resourcesDir, 'dist', 'backend', 'snitch-backend', backendName)
-  : path.join(resourcesDir, 'snitch-backend', backendName)
+  ? path.join(resourcesDir, 'target', 'release', backendName)
+  : path.join(resourcesDir, backendName)
 
 const frontendDist   = isDev
-  ? path.join(resourcesDir, 'frontend', 'dist')
+  ? path.join(resourcesDir, 'ui', 'dist')
   : path.join(resourcesDir, 'frontend_dist')
 
 const iconPath = isDev
@@ -126,7 +125,10 @@ let backendElevated = false     // EN: Elevated spawn (RunAs/osascript/pkexec)
 // FR: Secret hexadécimal de 48 caractères généré une fois par lancement.
 //     Transmis au backend via SNITCH_TOKEN et servi au renderer via ipcMain —
 //     la page web ne peut l'obtenir que par le pont preload.
-const API_TOKEN = crypto.randomBytes(24).toString('hex')
+const API_TOKEN = (() => {
+  try { const stored = fs.readFileSync(path.join(backendDataDir(), 'api_token.txt'), 'utf8').trim(); if (stored.length >= 16) return stored } catch {}
+  return crypto.randomBytes(24).toString('hex')
+})()
 
 // EN: IPC handlers — the ONLY way the renderer learns token/port/version.
 // FR: Handlers IPC — la SEULE façon pour le renderer d'apprendre jeton/port/version.
@@ -197,25 +199,7 @@ function reportUpdate(state, extra = {}) {
   rebuildTrayMenu()
 }
 
-function initAutoUpdater() {
-  try {
-    ({ autoUpdater } = require('electron-updater'))
-  } catch {
-    log.warn('electron-updater not bundled — update checks disabled')
-    return
-  }
-  autoUpdater.autoDownload = true        // EN: download in background / FR: télécharger en tâche de fond
-  autoUpdater.autoInstallOnAppQuit = true
-  autoUpdater.on('checking-for-update', () => reportUpdate('checking'))
-  autoUpdater.on('update-available', (info) => reportUpdate('available', { version: info.version }))
-  autoUpdater.on('update-not-available', () => reportUpdate('none'))
-  autoUpdater.on('download-progress', (p) => reportUpdate('downloading', { percent: Math.round(p.percent) }))
-  autoUpdater.on('update-downloaded', (info) => reportUpdate('downloaded', { version: info.version }))
-  autoUpdater.on('error', (err) => {
-    log.warn('auto-update error:', err.message)
-    reportUpdate('error', { message: err.message })
-  })
-}
+function initAutoUpdater() { reportUpdate('none') }
 
 function checkForUpdates(manual = false) {
   if (!autoUpdater || !app.isPackaged) {
@@ -344,7 +328,7 @@ function createMain() {
    *      d'ipcRenderer. */
   mainWindow = new BrowserWindow({
     width: 1400, height: 860, minWidth: 900, minHeight: 600,
-    show: false, title: 'Snitch', backgroundColor: '#000000',
+    show: false, title: 'Genyra Snitch', backgroundColor: '#000000',
     icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -358,6 +342,11 @@ function createMain() {
   } else {
     mainWindow.loadFile(path.join(frontendDist, 'index.html'))
   }
+
+  mainWindow.webContents.setWindowOpenHandler(({url}) => {
+    try { const target=new URL(url); if (target.protocol==='https:' && ['github.com','genyra.com'].includes(target.hostname)) shell.openExternal(url) } catch {}
+    return {action:'deny'}
+  })
 
   mainWindow.once('ready-to-show', () => {
     if (splashWindow) { splashWindow.destroy(); splashWindow = null }
@@ -388,46 +377,18 @@ function createMain() {
  */
 function rebuildTrayMenu() {
   if (!tray) return
-  const items = [
-    {
-      label: 'Show Snitch / Afficher Snitch',
-      click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus() } },
-    },
-  ]
-  // EN: Update entries reflect live state — "restart to update" once the
-  //     new version is staged, "check now" otherwise.
-  // FR: Les entrées de mise à jour reflètent l'état courant — « redémarrer
-  //     pour mettre à jour » une fois la version prête, « vérifier » sinon.
-  if (updateStatus.state === 'downloaded') {
-    items.push({
-      label: `Restart to update to v${updateStatus.version} / Redémarrer pour v${updateStatus.version}`,
-      click: () => autoUpdater && autoUpdater.quitAndInstall(),
-    })
-  } else if (updateStatus.state === 'downloading') {
-    items.push({ label: `Downloading update… ${updateStatus.percent ?? 0}% / Téléchargement…`, enabled: false })
-  } else if (app.isPackaged) {
-    items.push({
-      label: 'Check for updates / Vérifier les mises à jour',
-      click: () => checkForUpdates(true),
-    })
-  }
-  items.push(
-    {
-      label: 'Open logs / Ouvrir les logs',
-      click: () => shell.openPath(logDir),
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit / Quitter',
-      click: () => { isQuitting = true; app.quit() },
-    },
-  )
-  tray.setContextMenu(Menu.buildFromTemplate(items))
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {label:'Show Genyra Snitch',click:()=>{if(mainWindow){mainWindow.show();mainWindow.focus()}}},
+    {label:'Genyra Snitch releases',click:()=>shell.openExternal('https://github.com/GenyraLLC/genyra-snitch/releases')},
+    {label:'Open logs',click:()=>shell.openPath(logDir)},
+    {type:'separator'},
+    {label:'Quit',click:()=>{isQuitting=true;app.quit()}},
+  ]))
 }
 
 function createTray() {
   tray = new Tray(iconPath)
-  tray.setToolTip('Snitch')
+  tray.setToolTip('Genyra Snitch · Genyra LLC')
   rebuildTrayMenu()
   // EN: A plain click (Windows/Linux) or double-click restores the window.
   // FR: Un simple clic (Windows/Linux) ou double-clic restaure la fenêtre.
@@ -498,9 +459,11 @@ function killBackend() {
  *     dépose atterrisse là où il le cherche.
  */
 function backendDataDir() {
+  if (process.env.SNITCH_DATA_DIR) return process.env.SNITCH_DATA_DIR
+
   if (isWindows) return path.join(process.env.LOCALAPPDATA || path.join(app.getPath('home'), 'AppData', 'Local'), 'Snitch')
   if (process.platform === 'darwin') return path.join(app.getPath('home'), 'Library', 'Application Support', 'Snitch')
-  return path.join(process.env.XDG_DATA_HOME || path.join(app.getPath('home'), '.local', 'share'), 'snitch')
+  return path.join(process.env.XDG_DATA_HOME || path.join(app.getPath('home'), '.local', 'share'), 'genyra-snitch')
 }
 
 /**
@@ -542,7 +505,7 @@ function backendDataDir() {
  */
 function launchBackendElevated() {
   const dataDir = backendDataDir()
-  fs.mkdirSync(dataDir, { recursive: true })
+  fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 })
   // EN: The token file is the Windows auth path (env can't cross UAC). It can
   //     fail with EACCES when a previous ELEVATED run left the data dir
   //     root-owned — on POSIX the env vars below carry the token anyway, so a
@@ -621,6 +584,7 @@ function launchBackendElevated() {
     //     seulement si l'écriture a échoué.
     const envArgs = [
       `SNITCH_DATA_DIR=${dataDir}`,
+      `SNITCH_FRONTEND_DIR=${frontendDist}`,
       // EN: same ownership hand-back as macOS (see above)
       // FR: même rétrocession de propriété que macOS (voir ci-dessus)
       `SNITCH_OWNER_UID=${process.getuid()}`,
@@ -636,7 +600,7 @@ function launchBackendElevated() {
 
   backendProc.on('error', err => {
     if (isQuitting) return
-    dialog.showErrorBox('Snitch', `Failed to start backend / Échec du démarrage du backend :\n${err.message}`)
+    dialog.showErrorBox('Genyra Snitch', `Failed to start backend / Échec du démarrage du backend :\n${err.message}`)
     app.quit()
   })
   // EN: No 'exit' crash-watch here — the wrapper exits as soon as the
@@ -653,7 +617,7 @@ function launchBackend() {
    *      OS (la capture l'exige) ; le mode dev lance sans privilèges pour
    *      itérer sans invite mot de passe (la capture échoue, l'UI marche). */
   if (!fs.existsSync(backendExe)) {
-    dialog.showErrorBox('Snitch', `Backend not found / Backend introuvable :\n${backendExe}`)
+    dialog.showErrorBox('Genyra Snitch', `Backend not found / Backend introuvable :\n${backendExe}`)
     app.quit(); return
   }
 
@@ -676,6 +640,8 @@ function spawnBackendPlain() {
 
   const env = Object.assign({}, process.env)
   env.SNITCH_TOKEN = API_TOKEN
+  env.SNITCH_DATA_DIR = backendDataDir()
+  env.SNITCH_FRONTEND_DIR = frontendDist
   env.SNITCH_PORT  = String(backendPort)
   env.SNITCH_USER_DATA = '1'   // EN: per-OS user data dir, not the bundle
                                // FR: dossier de données utilisateur, pas le bundle
@@ -691,13 +657,13 @@ function spawnBackendPlain() {
   })
   backendProc.on('error', err => {
     if (isQuitting) return
-    dialog.showErrorBox('Snitch', `Failed to start backend / Échec du démarrage du backend :\n${err.message}`)
+    dialog.showErrorBox('Genyra Snitch', `Failed to start backend / Échec du démarrage du backend :\n${err.message}`)
     app.quit()
   })
   backendProc.on('exit', (code) => {
     if (isQuitting) return  // EN: normal shutdown — don't alert / FR: arrêt normal — ne pas alerter
     if (mainWindow) {
-      dialog.showErrorBox('Snitch', `Backend stopped (code ${code}) / Backend arrêté (code ${code}).`)
+      dialog.showErrorBox('Genyra Snitch', `Backend stopped (code ${code}) / Backend arrêté (code ${code}).`)
       app.quit()
     }
   })
@@ -729,6 +695,8 @@ function shutdownBackend() {
 
 // ── App lifecycle / Cycle de vie de l'application ────────────────────────────
 app.whenReady().then(async () => {
+  if (process.platform !== 'linux') { dialog.showErrorBox('Genyra Snitch', 'This native fork currently supports Linux.'); app.quit(); return }
+
   // EN: Guard: when a previous ELEVATED run left the data dir root-owned,
   //     Chromium cannot write its caches and the app dies SILENTLY — no
   //     window, no error. Detect it up front and tell the user how to fix.
@@ -740,7 +708,7 @@ app.whenReady().then(async () => {
     fs.accessSync(app.getPath('userData'), fs.constants.W_OK)
   } catch {
     const dataPath = app.getPath('userData')
-    dialog.showErrorBox('Snitch',
+    dialog.showErrorBox('Genyra Snitch',
       `Cannot write to the data folder (leftover root-owned files from an earlier elevated run).\n` +
       `Impossible d'écrire dans le dossier de données (fichiers restés propriété de root après un lancement élevé).\n\n` +
       `Fix / Réparer :\n  sudo chown -R $USER "${dataPath}"\n  ${'or / ou'} : rm -rf "${dataPath}"`)
@@ -778,11 +746,11 @@ app.whenReady().then(async () => {
     } catch (e) {
       lowerSplash()
       if (!backendElevated) {
-        dialog.showErrorBox('Snitch', `Backend unavailable / Backend indisponible :\n${e.message}`)
+        dialog.showErrorBox('Genyra Snitch', `Backend unavailable / Backend indisponible :\n${e.message}`)
         app.quit(); return
       }
       const choice = await dialog.showMessageBox({
-        type: 'warning', title: 'Snitch',
+        type: 'warning', title: 'Genyra Snitch',
         // EN: Don't guess the cause — a crashing backend looks exactly like a
         //     declined prompt from here. Point to the log that tells which.
         // FR: Ne pas deviner la cause — un backend qui plante ressemble ici
@@ -806,7 +774,7 @@ app.whenReady().then(async () => {
           await waitForBackend()
           booted = true
         } catch (e2) {
-          dialog.showErrorBox('Snitch', `Backend unavailable / Backend indisponible :\n${e2.message}`)
+          dialog.showErrorBox('Genyra Snitch', `Backend unavailable / Backend indisponible :\n${e2.message}`)
           app.quit(); return
         }
       }

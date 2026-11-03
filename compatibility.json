@@ -1,0 +1,315 @@
+{
+  "upstream": "aixisstudio/Snitch",
+  "api_reference_revision": "062f2a8c3ba95ac811988710579874100d667956",
+  "ui_reference_revision": "9fb255745eaf3f587911c78b95111dad898df7df",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/graph"
+    },
+    {
+      "method": "GET",
+      "path": "/devices"
+    },
+    {
+      "method": "GET",
+      "path": "/alerts"
+    },
+    {
+      "method": "GET",
+      "path": "/media"
+    },
+    {
+      "method": "GET",
+      "path": "/settings"
+    },
+    {
+      "method": "POST",
+      "path": "/settings"
+    },
+    {
+      "method": "GET",
+      "path": "/remote/pairing"
+    },
+    {
+      "method": "POST",
+      "path": "/remote/pairing"
+    },
+    {
+      "method": "GET",
+      "path": "/capture/status"
+    },
+    {
+      "method": "POST",
+      "path": "/capture/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/capture/ports"
+    },
+    {
+      "method": "POST",
+      "path": "/capture/start"
+    },
+    {
+      "method": "POST",
+      "path": "/capture/processes"
+    },
+    {
+      "method": "POST",
+      "path": "/capture/whitelist"
+    },
+    {
+      "method": "GET",
+      "path": "/capture/interfaces"
+    },
+    {
+      "method": "POST",
+      "path": "/capture/interface"
+    },
+    {
+      "method": "GET",
+      "path": "/watchlist"
+    },
+    {
+      "method": "POST",
+      "path": "/watchlist"
+    },
+    {
+      "method": "GET",
+      "path": "/timeline"
+    },
+    {
+      "method": "POST",
+      "path": "/alerts/ignore"
+    },
+    {
+      "method": "GET",
+      "path": "/alerts/ignore"
+    },
+    {
+      "method": "DELETE",
+      "path": "/alerts/ignore"
+    },
+    {
+      "method": "POST",
+      "path": "/shutdown"
+    },
+    {
+      "method": "GET",
+      "path": "/history/host/{ip}"
+    },
+    {
+      "method": "GET",
+      "path": "/history/process/{name}"
+    },
+    {
+      "method": "GET",
+      "path": "/history/top_processes"
+    },
+    {
+      "method": "GET",
+      "path": "/diagnostics"
+    },
+    {
+      "method": "POST",
+      "path": "/geo/download"
+    },
+    {
+      "method": "GET",
+      "path": "/geo/status"
+    },
+    {
+      "method": "GET",
+      "path": "/firewall/status"
+    },
+    {
+      "method": "GET",
+      "path": "/firewall/rules"
+    },
+    {
+      "method": "POST",
+      "path": "/firewall/rules"
+    },
+    {
+      "method": "DELETE",
+      "path": "/firewall/rules/{rule_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/firewall/rules/{rule_id}/toggle"
+    },
+    {
+      "method": "POST",
+      "path": "/firewall/lockdown"
+    },
+    {
+      "method": "GET",
+      "path": "/firewall/profiles"
+    },
+    {
+      "method": "POST",
+      "path": "/firewall/profile"
+    },
+    {
+      "method": "POST",
+      "path": "/firewall/blocklist"
+    },
+    {
+      "method": "GET",
+      "path": "/alerts/rules"
+    },
+    {
+      "method": "POST",
+      "path": "/alerts/rules"
+    },
+    {
+      "method": "DELETE",
+      "path": "/alerts/rules/{rule_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/alerts/rules/sigma"
+    },
+    {
+      "method": "GET",
+      "path": "/alerts/rules/yaral"
+    },
+    {
+      "method": "POST",
+      "path": "/alerts/rules/{rule_id}/toggle"
+    },
+    {
+      "method": "POST",
+      "path": "/processes/kill"
+    },
+    {
+      "method": "POST",
+      "path": "/processes/suspend"
+    },
+    {
+      "method": "GET",
+      "path": "/security/ti"
+    },
+    {
+      "method": "POST",
+      "path": "/security/threat_check"
+    },
+    {
+      "method": "GET",
+      "path": "/security/integrity"
+    },
+    {
+      "method": "POST",
+      "path": "/security/integrity/check"
+    },
+    {
+      "method": "GET",
+      "path": "/security/ebpf"
+    },
+    {
+      "method": "POST",
+      "path": "/security/deep_inspect"
+    },
+    {
+      "method": "POST",
+      "path": "/security/sandbox"
+    },
+    {
+      "method": "GET",
+      "path": "/security/sinkhole"
+    },
+    {
+      "method": "POST",
+      "path": "/security/perf"
+    },
+    {
+      "method": "GET",
+      "path": "/security/slm"
+    },
+    {
+      "method": "GET",
+      "path": "/security/iocpack"
+    },
+    {
+      "method": "POST",
+      "path": "/security/iocpack/import"
+    },
+    {
+      "method": "POST",
+      "path": "/ingest/enroll"
+    },
+    {
+      "method": "GET",
+      "path": "/ingest/agents"
+    },
+    {
+      "method": "POST",
+      "path": "/ingest/revoke"
+    },
+    {
+      "method": "POST",
+      "path": "/ingest/events"
+    },
+    {
+      "method": "GET",
+      "path": "/remote/ioc_sync"
+    },
+    {
+      "method": "GET",
+      "path": "/remote/fleet"
+    },
+    {
+      "method": "POST",
+      "path": "/remote/ioc_sync"
+    },
+    {
+      "method": "GET",
+      "path": "/security/ask"
+    },
+    {
+      "method": "POST",
+      "path": "/security/ask/verdict"
+    },
+    {
+      "method": "POST",
+      "path": "/security/hollow"
+    },
+    {
+      "method": "GET",
+      "path": "/security/ebpf_enforce"
+    },
+    {
+      "method": "POST",
+      "path": "/security/ebpf/isolate"
+    },
+    {
+      "method": "POST",
+      "path": "/security/ebpf/block"
+    },
+    {
+      "method": "POST",
+      "path": "/security/explain"
+    },
+    {
+      "method": "GET",
+      "path": "/security/explain"
+    },
+    {
+      "method": "GET",
+      "path": "/security/audit"
+    },
+    {
+      "method": "GET",
+      "path": "/forensics/export"
+    },
+    {
+      "method": "GET",
+      "path": "/forensics/pcap"
+    },
+    {
+      "method": "WEBSOCKET",
+      "path": "/ws"
+    }
+  ]
+}

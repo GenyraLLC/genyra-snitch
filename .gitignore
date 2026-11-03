@@ -1,36 +1,33 @@
-# EN: Python artifacts / FR: Artefacts Python
-__pycache__/
-*.py[cod]
-.venv/
-*.spec.bak
-
-# EN: Node artifacts / FR: Artefacts Node
-node_modules/
-frontend/dist/
-
-# EN: Build output / FR: Sortie de build
-dist/
-build/
-
-# EN: Runtime data (SQLite DB, GeoLite2) / FR: Données d'exécution (SQLite, GeoLite2)
-data/
-# EN: ...but DO track the bundled gzip'd DB-IP Lite databases.
-# FR: ...mais on SUIT les bases DB-IP Lite gzipées embarquées.
-!backend/data/
-!backend/data/geo/
-!backend/data/geo/*.mmdb.gz
+/target
+/checks/
+/data/
+/ui/node_modules
+/ui/dist/
+*.pcap
 *.db
 *.db-wal
 *.db-shm
-*.mmdb
+api_token.txt
 
-# EN: Pinokio launcher artifacts / FR: Artefacts du launcher Pinokio
-backend/env/
-frontend_dist/
-logs/
+/electron/node_modules
+/dist
 
-# EN: OS / editor noise / FR: Fichiers système et éditeur
-.DS_Store
-*.log
+/agent/target
+__pycache__/
+*.pyc
+
+/local-workstation/
 .env
-staging/
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.core
+
+*.sqlite
+*.sqlite3
+*.pcapng
+*.har
+*.dmp
+.DS_Store

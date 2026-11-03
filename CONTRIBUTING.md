@@ -1,57 +1,7 @@
-# Contributing / Contribuer
+# Contributing
 
-[English](CONTRIBUTING.md) | [Français](CONTRIBUTING.md) | [Español](CONTRIBUTING.es.md) | [Deutsch](CONTRIBUTING.de.md) | [Русский](CONTRIBUTING.ru.md) | [日本語](CONTRIBUTING.ja.md) | [Português](CONTRIBUTING.pt-BR.md) | [中文](CONTRIBUTING.zh-CN.md)
+Keep the upstream API and UI workflows compatible unless a change is explicitly documented. Add meaningful tests for parser edge cases, rule semantics, persistence or privileged effects. Use generated fixtures, never a personal packet capture or production database.
 
-## English
+Run `scripts/check.sh` before sending a pull request. Kernel integration checks must run through `scripts/privileged-check.sh`, which creates disposable network namespaces. Do not run firewall experiments directly against a workstation policy.
 
-Thanks for your interest! Snitch is a bilingual (EN/FR) project — code
-comments and user-facing text should exist in both languages where
-practical. The UI ships 8 locales under `frontend/src/locales/` — a new
-language is a single file copied from `en.js` (keep key parity) plus an
-entry in `LANGS`/`LANG_NAMES` in `frontend/src/i18n.jsx`. Translation PRs
-are very welcome.
-
-**Ground rules**
-
-- **License compatibility**: new dependencies must be AGPL-3.0-compatible
-  (MIT, BSD, ISC, Apache-2.0, LGPL). GPL-2.0-only is a hard no.
-- **No outbound calls**: never add code that contacts a third-party service
-  without explicit, opt-in user consent.
-- **Bilingual**: docstrings and UI strings in English AND French.
-- **Tests**: every bug fix ships a test. `pytest backend/tests` and
-  `npm test` in `frontend/` must pass. Rust agent changes need
-  `cargo test` in `agent/` — `ci-agent.yml` covers all three OS.
-- **Keep diffs focused** — one concern per PR.
-
-**Dev setup**
-
-```bash
-cd backend && pip install -r requirements.txt -r requirements-dev.txt
-cd frontend && npm install
-```
-
-Backend: `python run_backend.py` (needs capture privileges).
-Frontend: `npm run dev` → http://localhost:5173/?token=<token from backend output>.
-
-## Français
-
-Merci de votre intérêt ! Snitch est un projet bilingue (EN/FR) — les
-commentaires de code et les textes utilisateur doivent exister dans les deux
-langues autant que possible. L'UI compte 8 locales dans
-`frontend/src/locales/` — une nouvelle langue = un nouveau fichier copiant
-`en.js` (gardez les clés en parité) + une entrée dans `LANGS`/`LANG_NAMES`
-de `frontend/src/i18n.jsx`.
-
-**Règles de base**
-
-- **Compatibilité de licence** : les nouvelles dépendances doivent être
-  compatibles AGPL-3.0 (MIT, BSD, ISC, Apache-2.0, LGPL). GPL-2.0-only est
-  exclu.
-- **Aucun appel sortant** : jamais de code contactant un service tiers sans
-  consentement explicite et opt-in de l'utilisateur.
-- **Bilingue** : docstrings et chaînes UI en anglais ET en français.
-- **Tests** : chaque correction s'accompagne d'un test. `pytest
-  backend/tests` et `npm test` dans `frontend/` doivent passer. Les
-  changements de l'agent Rust exigent `cargo test` dans `agent/` —
-  `ci-agent.yml` couvre les trois OS.
-- **Diffs ciblées** — un sujet par PR.
+Include the concrete behavior changed, validation performed and any limits. Keep upstream attribution intact. Follow Rust formatting and Clippy checks, and preserve the existing React language support.

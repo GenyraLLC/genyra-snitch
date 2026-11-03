@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<!--
+  Snitch — HTML shell.
+
+  EN: Single entry point for the Vite/React app. The #root div is where React
+      mounts; everything else lives in src/.
+  FR: Point d'entrée unique de l'app Vite/React. Le div #root est l'endroit où
+      React se monte ; tout le reste vit dans src/.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" href="logo-180.png" />
+    <title>Genyra Snitch — Know what your apps connect to</title>
+    <meta name="application-name" content="Genyra Snitch" />
+    <meta name="author" content="Genyra LLC" />
+    <meta name="description" content="Local network visibility, application firewall controls and investigation tools. Genyra Snitch by Genyra LLC, built on Snitch with a native Rust backend." />
+    <meta name="theme-color" content="#191d1b" />
+    <style>
+      /* EN: Global reset + dark base theme.
+         FR: Reset global + thème sombre de base. */
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      body { color: var(--text); font-family: 'Inter', system-ui, sans-serif; overflow: hidden; }
+
+      /* EN: Pill scrollbars to match the bento cards — fully rounded thumb
+         floating on a transparent track, inset by a transparent border so
+         it reads as a soft capsule, not a hard-edged bar.
+         FR: Barres de défilement « pilule » assorties aux cartes bento —
+         curseur entièrement arrondi flottant sur piste transparente, rentré
+         par une bordure transparente pour un rendu capsule douce. */
+      * { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb {
+        background: var(--scrollbar);
+        border-radius: 8px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-h); border: 2px solid transparent; background-clip: padding-box; }
+      ::-webkit-scrollbar-corner { background: transparent; }
+
+      /* EN: Design tokens — every component paints through these vars so the
+         whole app flips theme by changing data-theme alone. Dark values are
+         the authored palette; light values are hand-picked equivalents.
+         FR: Tokens de design — chaque composant peint via ces vars, donc
+         l'app entière bascule de thème en changeant data-theme seul. Les
+         valeurs sombres sont la palette d'origine ; les claires sont des
+         équivalents choisis à la main. */
+      html[data-theme="dark"], :root {
+        --bg:#191d1b; --surface:#242a26; --surface-2:#303831;
+        --border:#424d43; --scrollbar:#475248; --scrollbar-h:#6b786a;
+        --text:#f1f0e9; --text-2:#d7ddd3; --text-dim:#b5bfb0;
+        --text-muted:#9daa96; --text-faint:#87957f;
+        --brand:#ddc594; --brand-soft:#36382b; --brand-border:#796b4c;
+        --accent:#826332; --accent-contrast:#ffffff; --blue-text:#ddc594;
+        --red-text:#f0aaa0; --green-text:#abd3b2; --warn-text:#e0c48e;
+        --danger-bg:#43312e; --danger-active:#573832; --success-active:#2d4435;
+        --warn-bg:#3c3527; --info-bg:#2b3837; --map-border:#687661; --dot-stroke:#191d1b;
+        --aurora-a:#b89c64; --aurora-b:#727f67; --aurora-c:#c0baa0;
+      }
+      html[data-theme="light"] {
+        --bg:#eeece5; --surface:#faf9f5; --surface-2:#e9e7df;
+        --border:#c8c9bc; --scrollbar:#b7b9aa; --scrollbar-h:#8b917e;
+        --text:#202823; --text-2:#354237; --text-dim:#52614d;
+        --text-muted:#61705a; --text-faint:#6f7a65;
+        --brand:#765b2d; --brand-soft:#e9dfcb; --brand-border:#b8a47b;
+        --accent:#765b2d; --accent-contrast:#ffffff; --blue-text:#765b2d;
+        --red-text:#a13f39; --green-text:#28634b; --warn-text:#785b28;
+        --danger-bg:#fbefec; --danger-active:#f2d4ce; --success-active:#dfecdf;
+        --warn-bg:#f0e8d4; --info-bg:#e5ebe4; --map-border:#a6b39b; --dot-stroke:#f4f3ef;
+        --aurora-a:#d6c39a; --aurora-b:#b3bca8; --aurora-c:#e5dcc6;
+        color-scheme:light;
+      }
+      button,input,select { font:inherit; }
+      button { transition:background .16s ease,border-color .16s ease,box-shadow .16s ease; }
+      button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible {
+        outline:2px solid var(--brand); outline-offset:3px;
+      }
+      a { color:var(--brand); }
+      .genyra-brand { padding:12px 10px 10px; }
+      .genyra-brand-row { display:flex;align-items:center;justify-content:space-between;gap:10px; }
+      .genyra-wordmark { width:132px;height:auto;display:block; }
+      .genyra-on-light { display:none; }
+      html[data-theme="light"] .genyra-on-dark { display:none; }
+      html[data-theme="light"] .genyra-on-light { display:block; }
+      .genyra-local { font-size:8px;letter-spacing:1px;font-weight:700;color:var(--brand);padding:5px 7px;border:1px solid var(--brand-border);border-radius:20px; }
+      .genyra-company { color:var(--brand);font-size:9px;font-weight:700;letter-spacing:2.2px;line-height:1.4; }
+      .genyra-name { margin-top:12px;font-size:19px;font-weight:750;letter-spacing:-.55px;color:var(--text); }
+      .genyra-caption { margin-top:5px;font-size:10px;line-height:1.5;color:var(--text-muted); }
+      html[data-theme="dark"] { color-scheme: dark; }
+      body { background: var(--bg); }
+    </style>
+    <script>
+      /* EN: Resolve theme before first paint — saved choice wins, else the
+         OS preference decides (dark is our authored default). No FOUC.
+         FR: Résoudre le thème avant le premier rendu — le choix sauvegardé
+         l'emporte, sinon la préférence OS décide (le sombre est notre défaut).
+         Pas de flash de couleur. */
+      (function () {
+        var t = null;
+        try { t = localStorage.getItem('snitch_theme'); } catch (e) {}
+        if (t !== 'light' && t !== 'dark') {
+          t = (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches)
+            ? 'light' : 'dark';
+        }
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

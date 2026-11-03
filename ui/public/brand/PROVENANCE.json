@@ -1,0 +1,19 @@
+{
+  "owner": "Genyra LLC",
+  "fetched": "2026-11-03",
+  "assets": {
+    "genyra-dark.png": {
+      "source": "https://genyra.com/branding/genyra-dark.png",
+      "sha256": "5d6befce259342a9f94f7c3a8b8ddb1eca2e8ce480372a00e083262360f43f6c"
+    },
+    "genyra-light.png": {
+      "source": "https://genyra.com/branding/genyra-light.png",
+      "sha256": "a8f5912dc5744fd1008fd988f8f740eed4329cc9c65cc5badefaba658e08e56a"
+    },
+    "genyra-icon.png": {
+      "source": "https://genyra.com/branding/apple-touch-icon.png",
+      "sha256": "3fbc4f202f7c6e760f89824f4193042e0a3eb13781943e3532395e6f6cb1912d"
+    }
+  },
+  "launcher_icon": "Resized from the official apple-touch-icon for required package dimensions; no logo redesign."
+}

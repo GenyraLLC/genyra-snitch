@@ -1,0 +1,20 @@
+{
+  "project": "Snitch",
+  "repository": "https://github.com/aixisstudio/Snitch",
+  "revision": "062f2a8c3ba95ac811988710579874100d667956",
+  "upstream_version": "1.6.4",
+  "fork_name": "Genyra Snitch",
+  "license": "AGPL-3.0",
+  "derived_assets": [
+    "React UI",
+    "Electron launcher and artwork",
+    "Frida instrumentation script",
+    "classifier lists",
+    "OUI data",
+    "alert explanation templates",
+    "detection thresholds and API contracts"
+  ],
+  "maintainer": "Genyra LLC",
+  "fork_repository": "https://github.com/GenyraLLC/genyra-snitch",
+  "ui_revision": "9fb255745eaf3f587911c78b95111dad898df7df"
+}
