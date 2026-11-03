@@ -92,6 +92,21 @@ isolation; use it only where LocalSystem operation is appropriate.
 The Rust integration test exercises the actual collector's discovery, token
 reuse, duplicate rejection, graceful shutdown and persisted settings on restart.
 Registration tests check native service path escaping and reject control-character
-injection. Platform builds and tests are separate from installing a privileged
+injection. An opt-in graphical test checks close/reopen behavior against a real
+native window. The opt-in Linux test installs the generated user unit, starts,
+stops and restarts its synthetic collector, verifies retained settings and token,
+then removes the registration; it refuses to touch an existing Genyra service.
+The Windows CI fixture exercises SCM start, stop and restart using demo data.
+Platform builds and tests are separate from installing a privileged
 service and validating live capture on each operating system. Do not interpret a
 successful cross-platform build as proof of those runtime checks.
+
+```sh
+cargo test --test linux_service -- --ignored
+cargo test --manifest-path desktop/Cargo.toml --test session_lifecycle -- --ignored
+```
+
+The first command requires an active Linux user systemd session and temporarily
+changes the user's Genyra startup registration. The second requires a graphical
+session and a collector binary beside the tested desktop binary. Both use
+temporary synthetic data and clean up their collectors.
