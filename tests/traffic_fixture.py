@@ -3,7 +3,9 @@ import fcntl,socket,struct,time
 from pathlib import Path
 
 def interface():
-    return next((p.name for p in Path('/sys/class/net').iterdir() if p.name!='lo'),'lo')
+    # Offline fixtures never need an external adapter. Hosted runners can list
+    # unaddressed virtual interfaces first; loopback has a stable local IPv4.
+    return 'lo'
 
 def address(iface):
     with socket.socket(socket.AF_INET,socket.SOCK_DGRAM)as s:
