@@ -211,8 +211,8 @@ pub fn download_geo(a: &App, body: &Value) -> ApiResult {
                 }
                 output.sync_all().map_err(|e| bad(e.to_string()))?;
                 drop(output);
-                let _reader = maxminddb::Reader::open_readfile(&staged)
-                    .map_err(|_| bad("Invalid GeoIP database"))?;
+                let _reader =
+                    crate::geodb::open(&staged).map_err(|_| bad("Invalid GeoIP database"))?;
                 let name = format!("dbip-{kind}-lite.mmdb");
                 std::fs::rename(&staged, geo.join(&name)).map_err(|e| bad(e.to_string()))?;
                 Ok(name)

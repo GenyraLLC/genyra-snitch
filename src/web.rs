@@ -269,12 +269,20 @@ fn api(
             Ok(json!({"whitelisted_ips":items}))
         }
         ("/capture/interfaces", true, _) => {
+            if crate::demo::enabled() {
+                return Ok(
+                    json!({"interfaces":[{"name":"demo","description":"Synthetic traffic; no capture device","addresses":[],"loopback":false}],"current":"demo","configured":"demo"}),
+                );
+            }
             let list = pcap::Device::list().map_err(|e| bad(e.to_string()))?;
             Ok(
                 json!({"interfaces":list.into_iter().map(|d|json!({"loopback":d.flags.is_loopback(),"name":d.name,"description":d.desc,"addresses":d.addresses.iter().map(|a|a.addr).collect::<Vec<_>>()})).collect::<Vec<_>>(),"current":a.engine.lock().unwrap().iface,"configured":a.engine.lock().unwrap().settings["interface"]}),
             )
         }
         ("/capture/interface", _, true) => {
+            if crate::demo::enabled() {
+                return Err(bad("Live interfaces are unavailable in demo mode"));
+            }
             let list = pcap::Device::list().map_err(|e| bad(e.to_string()))?;
             let selected = body["name"]
                 .as_str()

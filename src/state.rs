@@ -1,9 +1,9 @@
+use crate::geodb;
 use crate::{
     packet,
     process::{Key, Table},
 };
 use chrono::Utc;
-use maxminddb::Reader;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
@@ -181,8 +181,8 @@ pub struct Engine {
     ptr_failed: HashMap<IpAddr, Instant>,
     pub ptr_queue: VecDeque<(IpAddr, u16, &'static str)>,
     ptr_enabled: bool,
-    city: Option<Reader<Vec<u8>>>,
-    asn: Option<Reader<Vec<u8>>>,
+    city: Option<geodb::Reader>,
+    asn: Option<geodb::Reader>,
     classifier: Classifier,
     pub settings: Value,
     pub iface: String,
@@ -266,8 +266,8 @@ impl Engine {
             ptr_enabled: !crate::demo::enabled()
                 && std::env::var("SNITCH_DISABLE_PTR").as_deref() != Ok("1")
                 && std::env::var_os("SNITCH_REPLAY_PCAP").is_none(),
-            city: Reader::open_readfile(data.join("geo/dbip-city-lite.mmdb")).ok(),
-            asn: Reader::open_readfile(data.join("geo/dbip-asn-lite.mmdb")).ok(),
+            city: geodb::open(data.join("geo/dbip-city-lite.mmdb")).ok(),
+            asn: geodb::open(data.join("geo/dbip-asn-lite.mmdb")).ok(),
             classifier: Classifier::new(data),
             settings,
             firewall,
@@ -341,7 +341,7 @@ impl Engine {
         self.removed.extend(stale);
     }
     fn node(&self, ip: IpAddr) -> Node {
-        fn record(reader: &Option<Reader<Vec<u8>>>, ip: IpAddr) -> Value {
+        fn record(reader: &Option<geodb::Reader>, ip: IpAddr) -> Value {
             reader
                 .as_ref()
                 .and_then(|r| r.lookup(ip).ok())
@@ -986,8 +986,8 @@ impl Engine {
         self.raw_bytes = 0;
     }
     pub fn reload_geo(&mut self, data: &Path) {
-        self.city = Reader::open_readfile(data.join("geo/dbip-city-lite.mmdb")).ok();
-        self.asn = Reader::open_readfile(data.join("geo/dbip-asn-lite.mmdb")).ok();
+        self.city = geodb::open(data.join("geo/dbip-city-lite.mmdb")).ok();
+        self.asn = geodb::open(data.join("geo/dbip-asn-lite.mmdb")).ok();
     }
     pub fn init(&self) -> Value {
         let mut v = self.graph();

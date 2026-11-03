@@ -20,6 +20,7 @@ getrandom = "0.3"
 sysinfo = "0.37"
 earcutr = "0.5"
 iana-time-zone = "0.1"
+tempfile = "3"
 
 [profile.release]
 lto = "thin"

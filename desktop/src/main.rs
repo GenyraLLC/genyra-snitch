@@ -2,6 +2,7 @@
 //! A hidden/minimized window suspends polling; only the active view refreshes.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod scene;
+mod workflows;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use serde_json::{json, Value};
 use std::{
@@ -31,6 +32,8 @@ const PANELS: &[(&str, &str)] = &[
     ("Agents", "/ingest/agents"),
     ("Settings", "/settings"),
     ("Diagnostics", "/diagnostics"),
+    ("Tools & integrations", "/security/ti"),
+    ("Exports", "/capture/status"),
 ];
 
 #[derive(Clone)]
@@ -61,12 +64,21 @@ impl Connection {
         })
     }
     fn request(&self, client: &reqwest::blocking::Client, job: &Job) -> Result<Value, String> {
-        if self.read_only && matches!(job, Job::Write(..)) {
+        if self.read_only && matches!(job, Job::Write(method,..) if *method!=reqwest::Method::GET) {
             return Err("This preview is read-only; no collector settings were changed".into());
         }
         let (method, path, body) = match job {
             Job::Read(path) => (reqwest::Method::GET, path.as_str(), None),
-            Job::Write(method, path, body) => (method.clone(), path.as_str(), Some(body)),
+            Job::Write(method, path, body) => (
+                method.clone(),
+                path.as_str(),
+                if *method == reqwest::Method::GET {
+                    None
+                } else {
+                    Some(body)
+                },
+            ),
+            _ => return Err("Internal request type mismatch".into()),
         };
         if !path.starts_with('/') || path.starts_with("//") {
             return Err("Invalid local resource".into());
@@ -104,10 +116,43 @@ impl Connection {
         }
         Ok(value)
     }
+    fn download(
+        &self,
+        client: &reqwest::blocking::Client,
+        path: &str,
+        destination: &std::path::Path,
+    ) -> Result<Value, String> {
+        if !path.starts_with('/') || path.starts_with("//") {
+            return Err("Invalid local export resource".into());
+        }
+        let parent = destination.parent().ok_or("Choose an export directory")?;
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        let response = client
+            .get(format!("{}{path}", self.base))
+            .header("X-Snitch-Token", &self.token)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .map_err(|e| e.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!("Export rejected ({})", response.status()));
+        }
+        let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
+        let bytes = std::io::copy(&mut response.take(64 * 1024 * 1024 + 1), &mut file)
+            .map_err(|e| e.to_string())?;
+        if bytes > 64 * 1024 * 1024 {
+            return Err("Export exceeds the desktop's 64 MiB file limit".into());
+        }
+        file.as_file().sync_all().map_err(|e| e.to_string())?;
+        file.persist_noclobber(destination)
+            .map_err(|e| e.error.to_string())?;
+        Ok(json!({"ok":true,"saved_to":destination,"bytes":bytes}))
+    }
 }
 enum Job {
     Read(String),
     Write(reqwest::Method, String, Value),
+    ReadMany(Vec<String>),
+    Download(String, PathBuf),
 }
 struct Reply {
     path: String,
@@ -140,8 +185,23 @@ impl Worker {
                     let (path, mutation) = match &job {
                         Job::Read(path) => (path.clone(), false),
                         Job::Write(_, path, _) => (path.clone(), true),
+                        Job::ReadMany(_) => ("bundle".into(), false),
+                        Job::Download(_, _) => ("export".into(), true),
                     };
-                    let result = connection.request(&client, &job);
+                    let result = match &job {
+                        Job::Download(path, file) => connection.download(&client, path, file),
+                        Job::ReadMany(paths) => {
+                            let mut values = serde_json::Map::new();
+                            for path in paths.iter().take(8) {
+                                let result = connection
+                                    .request(&client, &Job::Read(path.clone()))
+                                    .unwrap_or_else(|error| json!({"error":error}));
+                                values.insert(path.clone(), result);
+                            }
+                            Ok(Value::Object(values))
+                        }
+                        _ => connection.request(&client, &job),
+                    };
                     if completed
                         .send(Reply {
                             path,
@@ -175,6 +235,7 @@ impl Worker {
 struct Desktop {
     worker: Worker,
     scene: scene::Scene,
+    workflows: workflows::Workflows,
     panel: usize,
     values: BTreeMap<String, Value>,
     refresh: Instant,
@@ -231,6 +292,7 @@ impl Desktop {
         Self {
             worker: Worker::new(connection, cc.egui_ctx.clone()),
             scene: scene::Scene::default(),
+            workflows: workflows::Workflows::default(),
             panel: 0,
             values: BTreeMap::new(),
             refresh: Instant::now() - Duration::from_secs(10),
@@ -263,6 +325,31 @@ impl Desktop {
             .get(PANELS[self.panel].1)
             .cloned()
             .unwrap_or(Value::Null)
+    }
+    fn accept_data(&mut self, path: String, value: Value) {
+        if path == "/settings" {
+            self.workflows.load_settings(&value["settings"]);
+            if !self.settings_dirty {
+                self.settings = workflows::preferences(&value["settings"]);
+            }
+        }
+        if path == "/graph" {
+            self.scene.ingest(&value);
+        }
+        self.values.insert(path, value);
+    }
+    fn read_job(&self) -> Job {
+        match self.panel {
+            10 => Job::ReadMany(vec!["/ingest/agents".into(), "/remote/fleet".into()]),
+            11 => Job::ReadMany(vec![
+                "/settings".into(),
+                "/capture/interfaces".into(),
+                "/geo/status".into(),
+                "/media".into(),
+            ]),
+            13 => self.workflows.read_job(),
+            _ => Job::Read(PANELS[self.panel].1.into()),
+        }
     }
     fn graph(&mut self, ui: &mut egui::Ui, map: bool) {
         if let Some(id) = self.scene.show(ui, map, &self.filter, !self.paused) {
@@ -472,18 +559,20 @@ impl eframe::App for Desktop {
                                 .unwrap_or("The operation did not complete")
                                 .into()
                         } else {
-                            "Saved locally".into()
+                            "Complete".into()
                         };
                         self.values.insert("last_action".into(), value);
                         self.refresh = Instant::now() - Duration::from_secs(10);
                     } else {
-                        if reply.path == "/settings" && !self.settings_dirty {
-                            self.settings = value.clone();
+                        if reply.path == "bundle" {
+                            if let Value::Object(values) = value {
+                                for (path, value) in values {
+                                    self.accept_data(path, value);
+                                }
+                            }
+                        } else {
+                            self.accept_data(reply.path, value);
                         }
-                        if reply.path == "/graph" {
-                            self.scene.ingest(&value);
-                        }
-                        self.values.insert(reply.path, value);
                     }
                 }
                 Err(error) => {
@@ -505,7 +594,7 @@ impl eframe::App for Desktop {
                 self.worker.send(Job::Read("/capture/status".into()));
                 self.last_capture_check = Instant::now();
             } else {
-                self.worker.send(Job::Read(PANELS[self.panel].1.into()));
+                self.worker.send(self.read_job());
             }
             self.refresh = Instant::now();
         }
@@ -694,20 +783,30 @@ impl eframe::App for Desktop {
                 8 => {
                     egui::ScrollArea::vertical().show(ui, |ui| self.investigation(ui));
                 }
+                10 => {
+                    egui::ScrollArea::vertical().show(ui, |ui| self.native_agents(ui));
+                }
                 11 => {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         if ui
                             .add_enabled(
-                                self.settings_dirty && !self.worker.busy,
+                                self.settings_dirty && !self.worker.busy && !self.read_only,
                                 egui::Button::new("Save settings"),
                             )
                             .clicked()
                         {
-                            self.worker.write("/settings", self.settings.clone());
+                            self.worker
+                                .write("/settings", json!({"settings":self.settings}));
                             self.settings_dirty = false;
                         }
                         self.settings_dirty |= edit_value(ui, "Preferences", &mut self.settings);
                     });
+                }
+                13 => {
+                    egui::ScrollArea::vertical().show(ui, |ui| self.native_tasks(ui));
+                }
+                14 => {
+                    egui::ScrollArea::vertical().show(ui, |ui| self.native_exports(ui));
                 }
                 _ => {
                     let value = self.current();
@@ -808,17 +907,78 @@ fn edit_value(ui: &mut egui::Ui, label: &str, value: &mut Value) -> bool {
             }
         }
         Value::Array(items) => {
+            let mut remove = None;
             for (i, value) in items.iter_mut().enumerate() {
-                changed |= edit_value(ui, &i.to_string(), value);
+                ui.horizontal(|ui| {
+                    changed |= edit_value(ui, &i.to_string(), value);
+                    if ui.small_button("Remove").clicked() {
+                        remove = Some(i);
+                    }
+                });
+            }
+            if let Some(index) = remove {
+                items.remove(index);
+                changed = true;
+            }
+            let limit = if label == "args" { 8 } else { 1024 };
+            if ui
+                .add_enabled(items.len() < limit, egui::Button::new("Add entry"))
+                .clicked()
+            {
+                items.push(match label {
+                    "ports" => json!(443),
+                    "conds" => json!({"field":"remote_ip","op":"eq","value":""}),
+                    _ => json!(""),
+                });
+                changed = true;
             }
         }
         Value::Bool(v) => changed = ui.checkbox(v, "").changed(),
         Value::String(v) => {
-            changed = ui
-                .add(egui::TextEdit::singleline(v).password(
-                    label.contains("key") || label.contains("token") || label.contains("secret"),
-                ))
-                .changed()
+            let options: &[&str] = match label {
+                "ti_provider" => &["none", "abuseipdb", "otx", "virustotal"],
+                "slm_mode" => &["ollama", "embedded"],
+                "syslog_format" => &["json", "cef"],
+                "field" => &[
+                    "remote_ip",
+                    "host",
+                    "process_name",
+                    "cmdline",
+                    "parent_name",
+                    "remote_port",
+                    "protocol",
+                    "direction",
+                    "size",
+                    "asn",
+                    "country",
+                ],
+                "op" => &["eq", "ne", "contains", "regex", "gt", "lt", "cidr"],
+                "severity" => &["info", "warning", "critical"],
+                "action" => &["alert", "block"],
+                _ => &[],
+            };
+            if !options.is_empty() {
+                let before = v.clone();
+                choice(ui, label, v, options);
+                changed = *v != before;
+            } else if ["yaml", "text"].contains(&label) {
+                changed = ui
+                    .add(
+                        egui::TextEdit::multiline(v)
+                            .desired_rows(10)
+                            .desired_width(f32::INFINITY)
+                            .code_editor(),
+                    )
+                    .changed();
+            } else {
+                changed = ui
+                    .add(egui::TextEdit::singleline(v).password(
+                        label.contains("key")
+                            || label.contains("token")
+                            || label.contains("secret"),
+                    ))
+                    .changed();
+            }
         }
         Value::Number(v) => {
             if let Some(mut n) = v.as_i64() {

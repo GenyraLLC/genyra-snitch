@@ -18,7 +18,11 @@ pub struct Integrity {
     pub baselines: HashMap<String, String>,
     pub findings: VecDeque<Value>,
     checked: HashSet<(u32, String)>,
+    checked_order: VecDeque<(u32, String)>,
     cache: HashMap<String, (FileIdentity, String)>,
+    cache_order: VecDeque<String>,
+    cache_hits: u64,
+    bytes_hashed: u64,
 }
 fn hex(bytes: impl AsRef<[u8]>) -> String {
     bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
@@ -26,7 +30,6 @@ fn hex(bytes: impl AsRef<[u8]>) -> String {
 pub fn sha(bytes: impl AsRef<[u8]>) -> String {
     hex(Sha256::digest(bytes.as_ref()))
 }
-#[cfg(any(target_os = "linux", test))]
 pub fn merkle(mut leaves: Vec<String>) -> String {
     leaves.sort();
     if leaves.is_empty() {
@@ -44,6 +47,18 @@ pub fn merkle(mut leaves: Vec<String>) -> String {
     leaves.pop().unwrap()
 }
 impl Integrity {
+    fn remember_process(&mut self, identity: (u32, String)) {
+        if self.checked.contains(&identity) {
+            return;
+        }
+        if self.checked.len() >= 4000 {
+            if let Some(old) = self.checked_order.pop_front() {
+                self.checked.remove(&old);
+            }
+        }
+        self.checked.insert(identity.clone());
+        self.checked_order.push_back(identity);
+    }
     pub fn load(v: &Value) -> Self {
         let mut s = Self::default();
         if let Some(m) = v.as_object() {
@@ -74,6 +89,7 @@ impl Integrity {
         };
         if let Some((old, hash)) = self.cache.get(path) {
             if *old == key {
+                self.cache_hits = self.cache_hits.saturating_add(1);
                 return Some(hash.clone());
             }
         }
@@ -87,20 +103,26 @@ impl Integrity {
                 break;
             }
             hasher.update(&buffer[..n]);
+            self.bytes_hashed = self.bytes_hashed.saturating_add(n as u64);
             if start.elapsed().as_secs() > 5 {
                 return None;
             }
         }
         let hash = hex(hasher.finalize());
-        if self.cache.len() >= 2048 {
-            self.cache.clear();
+        if !self.cache.contains_key(path) {
+            if self.cache.len() >= 2048 {
+                if let Some(old) = self.cache_order.pop_front() {
+                    self.cache.remove(&old);
+                }
+            }
+            self.cache_order.push_back(path.into());
         }
         self.cache.insert(path.into(), (key, hash.clone()));
         Some(hash)
     }
     pub fn status(&self, enabled: bool) -> Value {
         let linux = cfg!(target_os = "linux");
-        json!({"enabled":enabled,"platform":std::env::consts::OS,"capabilities":{"exe_hash_watch":true,"name_mismatch":linux,"rwx_scan":linux,"module_paths":linux,"merkle_modules":linux},"checked":self.checked.len(),"baselines":self.baselines.len(),"findings":self.findings,"hash_cache":self.cache.len()})
+        json!({"enabled":enabled,"platform":std::env::consts::OS,"capabilities":{"exe_hash_watch":true,"name_mismatch":true,"rwx_scan":linux,"module_paths":true,"merkle_modules":true},"checked":self.checked.len(),"baselines":self.baselines.len(),"findings":self.findings,"hash_cache":self.cache.len(),"cache_hits":self.cache_hits,"bytes_hashed":self.bytes_hashed})
     }
     #[cfg(target_os = "linux")]
     pub fn check(&mut self, pid: u32, force: bool) -> Vec<Value> {
@@ -113,10 +135,7 @@ impl Integrity {
         if !force && self.checked.contains(&(pid, start.clone())) {
             return vec![];
         }
-        if self.checked.len() >= 4000 {
-            self.checked.clear();
-        }
-        self.checked.insert((pid, start));
+        self.remember_process((pid, start));
         let Ok(exe) = fs::read_link(format!("{proc}/exe")) else {
             return vec![];
         };
@@ -245,10 +264,7 @@ impl Integrity {
             return vec![];
         }
         // A bounded cache of process identities, not just PIDs (which recycle).
-        if self.checked.len() >= 4000 {
-            self.checked.clear();
-        }
-        self.checked.insert(identity);
+        self.remember_process(identity);
         let Some(exe) = process.exe() else {
             return vec![];
         };
@@ -262,7 +278,68 @@ impl Integrity {
                 out.push(json!({"type":"BINARY_CHANGED","severity":"critical","pid":pid,"exe":exe,"expected":old,"actual":hash,"ts":chrono::Utc::now().timestamp_millis() as f64/1000.}));
             }
         } else if self.baselines.len() < 2000 {
-            self.baselines.insert(exe, hash);
+            self.baselines.insert(exe.clone(), hash);
+        }
+        let name = process.name().to_string_lossy();
+        let base = std::path::Path::new(&exe)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+        if !name.is_empty()
+            && !base.to_lowercase().starts_with(&name.to_lowercase())
+            && !name.eq_ignore_ascii_case(&base)
+        {
+            out.push(json!({"type":"NAME_MISMATCH","severity":"warning","pid":pid,"exe":exe,"detail":format!("Process name {name} differs from executable {base}")}));
+        }
+        if let Ok(modules) = crate::platform::modules::paths(pid) {
+            let suspicious: Vec<_> = modules
+                .iter()
+                .filter(|path| {
+                    let path = path.to_lowercase().replace('\\', "/");
+                    [
+                        "/tmp/",
+                        "/var/tmp/",
+                        "/dev/shm/",
+                        "/appdata/local/temp/",
+                        "/downloads/",
+                    ]
+                    .iter()
+                    .any(|marker| path.contains(marker))
+                })
+                .take(10)
+                .cloned()
+                .collect();
+            if !suspicious.is_empty() {
+                out.push(json!({"type":"MODULE_SUSPECT","severity":"warning","pid":pid,"exe":exe,"detail":"Mapped modules loaded from staging locations","modules":suspicious}));
+            }
+            let started = Instant::now();
+            let mut complete = true;
+            let mut hashes = vec![];
+            for path in modules {
+                if started.elapsed() > std::time::Duration::from_millis(500) {
+                    complete = false;
+                    break;
+                }
+                if let Some(hash) = self.hash_file(&path) {
+                    hashes.push(hash);
+                } else {
+                    complete = false;
+                }
+            }
+            if complete && !hashes.is_empty() {
+                let root = merkle(hashes);
+                let key = format!("merkle:{exe}");
+                if let Some(old) = self.baselines.get(&key) {
+                    if old != &root {
+                        out.push(json!({"type":"MODULE_CHANGED","severity":"critical","pid":pid,"exe":exe,"detail":"Mapped-module Merkle root changed","expected":old,"actual":root}));
+                    }
+                } else if self.baselines.len() < 2000 {
+                    self.baselines.insert(key, root);
+                }
+            }
+        }
+        for finding in &mut out {
+            finding["ts"] = json!(chrono::Utc::now().timestamp_millis() as f64 / 1000.);
         }
         for finding in &out {
             if self.findings.len() >= 200 {
@@ -276,6 +353,30 @@ impl Integrity {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exceeding_hash_capacity_does_not_rehash_the_whole_working_set() {
+        let dir =
+            std::env::temp_dir().join(format!("genyra-integrity-cache-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&dir).unwrap();
+        let mut watch = Integrity::default();
+        for i in 0..2049 {
+            let path = dir.join(i.to_string());
+            fs::write(&path, b"x").unwrap();
+            assert!(watch.hash_file(path.to_str().unwrap()).is_some());
+        }
+        let bytes = watch.bytes_hashed;
+        for i in 1000..2049 {
+            assert!(watch
+                .hash_file(dir.join(i.to_string()).to_str().unwrap())
+                .is_some());
+        }
+        assert_eq!(
+            watch.bytes_hashed, bytes,
+            "overflow must not invalidate the entire cache"
+        );
+        assert_eq!(watch.cache_hits, 1049);
+        fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn known_hash_and_order_independent_merkle() {
         assert_eq!(

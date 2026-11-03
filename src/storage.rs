@@ -80,7 +80,19 @@ pub fn flush(c: &mut Connection, p: &Pending) -> rusqlite::Result<()> {
     tx.commit()
 }
 pub fn cleanup(c: &mut Connection) -> rusqlite::Result<()> {
-    let cutoff = (chrono::Utc::now() - chrono::Duration::hours(24))
+    use rusqlite::OptionalExtension;
+    let hours = c
+        .query_row(
+            "SELECT value FROM settings WHERE key='retention_hours'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .and_then(|value| serde_json::from_str::<Value>(&value).ok())
+        .and_then(|v| v.as_i64())
+        .unwrap_or(24)
+        .clamp(1, 8760);
+    let cutoff = (chrono::Utc::now() - chrono::Duration::hours(hours))
         .format("%Y-%m-%dT%H:%M")
         .to_string();
     let tx = c.transaction()?;
@@ -103,6 +115,44 @@ pub fn timeline(c: &Connection, minutes: u32) -> rusqlite::Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retention_uses_the_saved_duration() {
+        let dir = std::env::temp_dir().join(format!("genyra-retention-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let mut c = open(&dir).unwrap();
+        let minute = (chrono::Utc::now() - chrono::Duration::hours(48))
+            .format("%Y-%m-%dT%H:%M")
+            .to_string();
+        c.execute(
+            "INSERT INTO traffic(minute,category,packets,bytes) VALUES(?1,'safe',1,100)",
+            [&minute],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO settings(key,value) VALUES('retention_hours','72')",
+            [],
+        )
+        .unwrap();
+        cleanup(&mut c).unwrap();
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM traffic", [], |r| r.get::<_, u32>(0))
+                .unwrap(),
+            1
+        );
+        c.execute(
+            "UPDATE settings SET value='24' WHERE key='retention_hours'",
+            [],
+        )
+        .unwrap();
+        cleanup(&mut c).unwrap();
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM traffic", [], |r| r.get::<_, u32>(0))
+                .unwrap(),
+            0
+        );
+        drop(c);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn legacy_device_with_null_private_mac_loads() {
         let c = Connection::open_in_memory().unwrap();

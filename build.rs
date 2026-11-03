@@ -1,5 +1,19 @@
 use std::{env, path::PathBuf, process::Command};
 fn main() {
+    #[cfg(target_os = "macos")]
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        bindgen::Builder::default()
+            .header_contents("genyra-proc.h", "#include <libproc.h>")
+            .allowlist_function("proc_pidinfo")
+            .allowlist_type("proc_regionwithpathinfo")
+            .allowlist_var("PROC_PIDREGIONPATHINFO")
+            .generate_comments(false)
+            .layout_tests(false)
+            .generate()
+            .expect("macOS libproc SDK bindings")
+            .write_to_file(PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("mac_proc.rs"))
+            .expect("write macOS process bindings");
+    }
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         // Npcap lives in a protected system subdirectory. Delay-load lets
         // main establish a safe search path before the first capture call.

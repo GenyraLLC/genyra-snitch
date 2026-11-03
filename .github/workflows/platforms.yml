@@ -34,8 +34,7 @@ jobs:
           "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" >> $env:GITHUB_PATH
       - run: cargo check --locked --all-targets
       - run: cargo test --locked --no-run
-      - name: macOS unit tests
-        if: runner.os == 'macOS'
+      - name: Native collector unit tests
         run: cargo test --locked
       - run: cargo test --locked --manifest-path desktop/Cargo.toml
       - name: Native release builds

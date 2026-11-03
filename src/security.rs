@@ -7,8 +7,10 @@ use axum::http::{Method, StatusCode};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
+#[cfg(unix)]
+use std::process::{Command, Stdio};
 use std::{
     collections::HashMap,
     fs,
@@ -17,11 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 #[cfg(target_os = "linux")]
-use std::{
-    io::Write,
-    net::ToSocketAddrs,
-    process::{Command, Stdio},
-};
+use std::{io::Write, net::ToSocketAddrs};
 
 type CompiledCondition = (Value, Option<regex::Regex>);
 pub struct Rules {
@@ -1389,14 +1387,14 @@ fn audit(a: &App) -> Value {
     }
     json!({"score":score,"period":"last 500 alerts","alert_counts":counts,"critical":critical,"warning":warning,"findings":{"high_risk_countries":risky,"unresolved_hosts":unresolved.into_iter().take(50).collect::<Vec<_>>(),"cleartext_alerts":counts.get("CLEARTEXT").copied().unwrap_or(0),"dns_tunnel_alerts":counts.get("DNS_TUNNEL").copied().unwrap_or(0),"threat_hits":counts.get("THREAT_HIT").copied().unwrap_or(0)},"firewall":{"active_rules":rules,"lockdown":lockdown,"blocked_attempts":blocked,"supported":command_exists("nft"),"platform":"linux"},"threat_intel":ti_config(a),"integrity":integrity,"recommendations":recs})
 }
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
 fn sandbox(_: &Value) -> ApiResult {
     Err(error(
         StatusCode::NOT_IMPLEMENTED,
-        "Network sandbox provider has not been ported to this OS",
+        "Windows has no equivalent network-denial sandbox in upstream Snitch; this tool requires Linux or macOS",
     ))
 }
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn sandbox(body: &Value) -> ApiResult {
     let path = body["path"]
         .as_str()
@@ -1413,8 +1411,19 @@ fn sandbox(body: &Value) -> ApiResult {
         .map(|s| s.chars().take(256).collect::<String>())
         .collect();
     let seconds = body["seconds"].as_u64().unwrap_or(10).clamp(1, 60);
-    let mut child = Command::new("unshare")
-        .args(["-Urn", "--", path])
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new("unshare");
+        command.args(["-Urn", "--", path]);
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("/usr/bin/sandbox-exec");
+        command.args(["-p","(version 1)(allow default)(deny network*)(deny network-bind)(deny network-outbound)(deny network-inbound)",path]);
+        command
+    };
+    let mut child = command
         .args(args)
         .process_group(0)
         .stdin(Stdio::null())
@@ -1456,7 +1465,7 @@ fn sandbox(body: &Value) -> ApiResult {
     let stdout = reader.join().unwrap_or_default();
     let stderr = errors.join().unwrap_or_default();
     Ok(
-        json!({"ok":exit_status.success()&&!timed_out,"exit_code":exit_status.code(),"supported":exit_status.success(),"timed_out":timed_out,"stdout":String::from_utf8_lossy(&stdout),"stderr":String::from_utf8_lossy(&stderr),"network_denied":exit_status.success()}),
+        json!({"ok":exit_status.success()&&!timed_out,"exit_code":exit_status.code(),"supported":true,"timed_out":timed_out,"stdout":String::from_utf8_lossy(&stdout),"stderr":String::from_utf8_lossy(&stderr),"network_denied":exit_status.success().then_some(true),"best_effort":cfg!(target_os="macos")}),
     )
 }
 #[cfg(test)]

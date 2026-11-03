@@ -10,6 +10,7 @@ mod demo;
 mod enrichment;
 mod firewall;
 mod forensics;
+mod geodb;
 mod integrations;
 mod integrity;
 #[cfg(target_os = "linux")]
@@ -484,7 +485,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("database and native libraries ready");
         return Ok(());
     }
-    platform::init_capture_runtime()?;
+    if !demo::enabled() {
+        platform::init_capture_runtime()?;
+    }
     // Reuse the established secret. Never generate a replacement or print it.
     let token = paths::token(&data)?;
     let conn = storage::open(&data)?;
@@ -530,24 +533,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|| options.get("--port").cloned())
         .unwrap_or_else(|| "8000".into())
         .parse()?;
-    let interfaces = pcap::Device::list()?;
-    let iface = env::var("SNITCH_IFACE")
-        .ok()
-        .or_else(|| options.get("--interface").cloned())
-        .or_else(|| {
-            settings["interface"]
-                .as_str()
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-        })
-        .or_else(|| {
-            interfaces
-                .iter()
-                .find(|d| !d.flags.is_loopback() && d.flags.is_up() && !d.addresses.is_empty())
-                .map(|d| d.name.clone())
-        })
-        .ok_or("No capture interface found")?;
-    if !interfaces.iter().any(|d| d.name == iface) {
+    let interfaces = if demo::enabled() {
+        vec![]
+    } else {
+        pcap::Device::list()?
+    };
+    let iface = if demo::enabled() {
+        "demo".to_owned()
+    } else {
+        env::var("SNITCH_IFACE")
+            .ok()
+            .or_else(|| options.get("--interface").cloned())
+            .or_else(|| {
+                settings["interface"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+            })
+            .or_else(|| {
+                interfaces
+                    .iter()
+                    .find(|d| !d.flags.is_loopback() && d.flags.is_up() && !d.addresses.is_empty())
+                    .map(|d| d.name.clone())
+            })
+            .ok_or("No capture interface found")?
+    };
+    if !demo::enabled() && !interfaces.iter().any(|d| d.name == iface) {
         return Err(format!("Interface {iface} does not exist").into());
     }
     let ips = interfaces

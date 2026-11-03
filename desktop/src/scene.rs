@@ -57,6 +57,8 @@ pub struct Scene {
     active_edges: usize,
     bytes_per_second: u64,
     last_snapshot: Option<Instant>,
+    graph_bounds: egui::Rect,
+    fit_after: Option<Instant>,
 }
 impl Default for Scene {
     fn default() -> Self {
@@ -80,6 +82,11 @@ impl Default for Scene {
             active_edges: 0,
             bytes_per_second: 0,
             last_snapshot: None,
+            graph_bounds: egui::Rect::from_min_max(
+                egui::pos2(-550., -425.),
+                egui::pos2(550., 425.),
+            ),
+            fit_after: None,
         }
     }
 }
@@ -102,6 +109,9 @@ fn direction(h: u64) -> Vec2 {
 impl Scene {
     pub fn ingest(&mut self, value: &Value) {
         let now = Instant::now();
+        if self.last_snapshot.is_none() {
+            self.fit_after = Some(now + Duration::from_secs(3));
+        }
         let interval = self
             .last_snapshot
             .map(|t| now.duration_since(t).as_secs_f64().max(0.1));
@@ -255,6 +265,16 @@ impl Scene {
             body.position += body.velocity * dt * 24.;
         }
     }
+    fn fit_graph(&mut self) {
+        if self.bodies.is_empty() {
+            return;
+        }
+        let mut bounds = egui::Rect::from_min_max(Pos2::ZERO, Pos2::ZERO);
+        for body in &self.bodies {
+            bounds.extend_with(body.position.to_pos2());
+        }
+        self.graph_bounds = bounds.expand(100.);
+    }
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -263,6 +283,13 @@ impl Scene {
         animate: bool,
     ) -> Option<String> {
         let mut clicked = None;
+        if self
+            .fit_after
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            self.fit_graph();
+            self.fit_after = None;
+        }
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new(format!("{} destinations", self.total))
@@ -281,6 +308,7 @@ impl Scene {
                     } else {
                         self.pan = Vec2::ZERO;
                         self.zoom = 1.;
+                        self.fit_graph();
                     }
                 }
                 if ui.small_button("−").clicked() {
@@ -336,11 +364,17 @@ impl Scene {
         let base = if map {
             (rect.width() / 5.5).min(rect.height() / 2.9)
         } else {
-            (rect.width() / 1050.).min(rect.height() / 850.)
+            (rect.width() / self.graph_bounds.width())
+                .min(rect.height() / self.graph_bounds.height())
         };
         let scale = base * zoom;
         let pan = if map { self.map_pan } else { self.pan };
-        let center = rect.center() + pan;
+        let center = rect.center() + pan
+            - if map {
+                Vec2::ZERO
+            } else {
+                self.graph_bounds.center().to_vec2() * scale
+            };
         let screen = |v: Vec2| center + v * scale;
         if animate && !map {
             self.step();

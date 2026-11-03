@@ -2,6 +2,42 @@
 //! active on other operating systems.
 #[cfg(not(target_os = "linux"))]
 pub mod firewall;
+#[cfg(not(target_os = "linux"))]
+pub mod modules;
+#[cfg(windows)]
+pub fn media() -> serde_json::Value {
+    use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+    let root = RegKey::predef(HKEY_CURRENT_USER);
+    let read = |device: &str| -> Vec<String> {
+        let Ok(key)=root.open_subkey(format!("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\{device}"))else{return vec![];};
+        let mut active = vec![];
+        for name in key.enum_keys().filter_map(Result::ok).take(4096) {
+            let Ok(app) = key.open_subkey(&name) else {
+                continue;
+            };
+            if name == "NonPackaged" {
+                for exe in app.enum_keys().filter_map(Result::ok).take(4096) {
+                    if app
+                        .open_subkey(&exe)
+                        .and_then(|key| key.get_value::<u64, _>("LastUsedTimeStop"))
+                        .is_ok_and(|v| v == 0)
+                    {
+                        active.push(exe.rsplit('#').next().unwrap_or(&exe).to_string());
+                    }
+                }
+            } else if app
+                .get_value::<u64, _>("LastUsedTimeStop")
+                .is_ok_and(|v| v == 0)
+            {
+                active.push(name);
+            }
+        }
+        active.sort();
+        active.dedup();
+        active
+    };
+    serde_json::json!({"mic":read("microphone"),"camera":read("webcam"),"supported":true,"source":"Windows per-user consent store"})
+}
 
 pub fn init_capture_runtime() -> Result<(), String> {
     #[cfg(windows)]

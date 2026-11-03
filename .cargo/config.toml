@@ -1,3 +1,7 @@
+[build]
+# Keep builds usable on developer workstations with many logical cores.
+jobs = 4
+
 [target.x86_64-pc-windows-msvc]
 # Frida's Windows devkit uses the static MSVC runtime.
 rustflags = ["-C", "target-feature=+crt-static"]
