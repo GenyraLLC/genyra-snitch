@@ -1,0 +1,24 @@
+name: Native macOS service runtime
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_run:
+        description: Successful native-platform job run providing the macOS build
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  launchd:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: experimental-native-macOS-ARM64
+          run-id: ${{ inputs.artifact_run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: brew install libpcap
+      - run: chmod +x target/release/genyra-snitch
+      - name: Native LaunchAgent lifecycle (synthetic data)
+        run: bash tests/macos-service.sh
