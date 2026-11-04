@@ -1,8 +1,8 @@
 <p align="center"><a href="https://genyra.com"><picture><source media="(prefers-color-scheme: dark)" srcset="ui/public/brand/genyra-light.png"><img src="ui/public/brand/genyra-dark.png" width="300" alt="Genyra LLC"></picture></a></p>
 <h1 align="center">Genyra Snitch</h1>
 <p align="center"><strong>Linux alpha · Native desktop 0.1.0-alpha.5</strong></p>
-<p align="center"><strong>Know what your apps connect to.</strong><br>Network visibility, application firewall controls and local investigation tools — by Genyra LLC.</p>
-<p align="center"><a href="https://github.com/GenyraLLC/genyra-snitch/actions">Builds</a> · <a href="docs/FEATURES.md">Feature coverage</a> · <a href="docs/PERFORMANCE.md">Resource usage</a> · <a href="docs/BUILD.md">Build &amp; run</a></p>
+<p align="center"><strong>Know what your apps connect to.</strong><br>Network visibility, application firewall controls and local investigation tools — by Genyra LLC.<br>Native Rust application engineering: a Python collector replaced by Rust and an Electron interface replaced by a native desktop, with measured resource use.</p>
+<p align="center"><a href="https://github.com/GenyraLLC/genyra-snitch/actions">Builds</a> · <a href="docs/FEATURES.md">Feature coverage</a> · <a href="docs/PERFORMANCE.md">Resource usage</a> · <a href="docs/BUILD.md">Build &amp; run</a> · <a href="https://genyra.com/engineering/lab/genyra-snitch">Engineering Lab page</a></p>
 
 Genyra Snitch is a Rust fork of [Snitch by aiXis Studio](https://github.com/aixisstudio/Snitch), with a native desktop and collector for network visibility, application controls and local investigation. The native application requires no Python, Node or browser runtime.
 
