@@ -1,0 +1,149 @@
+{
+  "measured_at_utc": "2026-11-04T09:58:24.521881+00:00",
+  "duration_seconds": 300.0000712290057,
+  "warmup_seconds": 45,
+  "sampling_interval_seconds": 1,
+  "source_commit": "375ce8cb4ef0dc0c403dad35d7d8d398f253136e",
+  "python_source_commit": "062f2a8c3ba95ac811988710579874100d667956",
+  "native_desktop_version": "0.1.0-alpha.5",
+  "rust_collector_version": "0.1.0-alpha.2",
+  "python_application_version": "1.6.4",
+  "electron_version": "44.9.1",
+  "window_logical_size": [
+    1440,
+    1040
+  ],
+  "display_scale": 1,
+  "theme": "dark",
+  "language": "en",
+  "cpu_model": "Intel Core i9-14900K",
+  "logical_cpus": 32,
+  "host_gpu": "NVIDIA GeForce RTX 4080 SUPER",
+  "graphics_driver": "615.78.08",
+  "applications": {
+    "python": {
+      "cpu_one_core_percent": 324.3299229943402,
+      "rss_start_mib": 1221.70703125,
+      "rss_end_mib": 1314.67578125,
+      "rss_mean_mib": 1279.4880598958334,
+      "rss_peak_mib": 1316.69140625,
+      "pss_mean_mib": 755.2435514322916,
+      "process_counts": [
+        9
+      ],
+      "capture_counter_delta": {
+        "frames": 101376,
+        "delivered": 100824,
+        "parse_failed": 0,
+        "not_for_us": 552,
+        "queue_queue_oldest_dropped": 0,
+        "queue_queue_put_failed": 0,
+        "queue_excluded_process": 0,
+        "queue_whitelisted_ip": 0,
+        "queue_noise_filtered": 36
+      }
+    },
+    "rust": {
+      "cpu_one_core_percent": 10.16333092025348,
+      "rss_start_mib": 162.796875,
+      "rss_end_mib": 181.234375,
+      "rss_mean_mib": 171.88541666666666,
+      "rss_peak_mib": 183.234375,
+      "pss_mean_mib": 113.77028645833333,
+      "process_counts": [
+        2
+      ],
+      "capture_counter_delta": {
+        "alert_overflow": 0,
+        "captured": 106720,
+        "filtered": 0,
+        "graph_evictions": 0,
+        "history_overflow": 0,
+        "noise_filtered": 36,
+        "nonlocal": 552,
+        "notification_dropped": 0,
+        "notification_failures": 0,
+        "pcap_dropped": 0,
+        "pcap_if_dropped": 0,
+        "processed": 100792,
+        "unattributed": 8953,
+        "unparsed": 0
+      }
+    }
+  },
+  "process_churn": {
+    "python": {
+      "new": 0,
+      "exited": 0
+    },
+    "rust": {
+      "new": 0,
+      "exited": 0
+    }
+  },
+  "graph_counts_start": {
+    "python": {
+      "nodes": 53,
+      "edges": 54
+    },
+    "rust": {
+      "nodes": 67,
+      "edges": 53
+    }
+  },
+  "graph_counts_end": {
+    "python": {
+      "nodes": 93,
+      "edges": 95
+    },
+    "rust": {
+      "nodes": 108,
+      "edges": 96
+    }
+  },
+  "visual_probes": {
+    "native": {
+      "callback_count": 11450,
+      "callbacks_per_second": 38.16118052264004,
+      "interval_median_ms": 33.667807499999995,
+      "interval_p95_ms": 33.8368772,
+      "interval_max_ms": 34.444762,
+      "watchdog_samples": 300,
+      "watchdog_median_ms": 0.080789,
+      "watchdog_p95_ms": 0.16212420000000002,
+      "watchdog_max_ms": 2.122823,
+      "watchdog_over_100ms": 0
+    },
+    "electron": {
+      "callback_count": 34921,
+      "callbacks_per_second": 116.38660131276093,
+      "interval_median_ms": 8.300000000017462,
+      "interval_p95_ms": 8.400000000023283,
+      "interval_max_ms": 174.90000000000146,
+      "watchdog_samples": 299,
+      "watchdog_median_ms": 6.4293260000122245,
+      "watchdog_p95_ms": 11.060791900007409,
+      "watchdog_max_ms": 58.81379300000117,
+      "watchdog_over_100ms": 0
+    }
+  },
+  "binary_sha256": {
+    "native_desktop": "98de1d5cbff0250a3957379f361ec2038bb50f0d53a2562a09070389fcf4d4a6",
+    "rust_collector": "3c3ff5d131c2887ee470f12f58a1790efc1d4fada73eb877e8c81df6939c9ae1"
+  },
+  "conditions": [
+    "Concurrent real traffic on the same interface, fresh separate SQLite databases and identical local City/ASN files; 45-second warm-up followed by 300 seconds of sampling.",
+    "Both compositor windows were 1440x1040 logical pixels, scale 1, dark mode, English, graph view. Their internal layouts and chrome differ.",
+    "Normal controls enabled; no capture policy changes, local inference or on-demand inspections during the window. Collectors had CAP_NET_RAW only; frontends had no capabilities.",
+    "Counts include each collector and the complete frontend process tree. All helper processes were stable during the measurement.",
+    "RSS is summed process RSS, so shared pages can be counted more than once. PSS apportions shared resident pages; every process supplied readable PSS for all 300 samples.",
+    "CPU includes all process threads; 100% means one logical core. Observer, compositor, unrelated applications, kernel buffers and GPU VRAM are excluded.",
+    "Native production capture defaults use a 4096-byte non-promiscuous IPv4/IPv6/ARP capture; Python uses 65535-byte promiscuous IPv4/IPv6 capture. Algorithms and observed node counts differ.",
+    "The upstream Electron main/preload/frontend were retained; a private adapter attaches the separately measured Python collector and adds numeric timing probes. Runtime was Electron 44.9.1.",
+    "Both frontends had numeric timing probes enabled and took a screenshot during warm-up. Instrumentation is included in the measured app processes.",
+    "Native timing records egui update callbacks and a worker-thread repaint request to the next update. Electron records requestAnimationFrame callbacks and an IPC request through the next rAF response.",
+    "The timing mechanisms differ. These are scheduling and responsiveness observations, not hardware-presented FPS, equal-cadence rendering, input-to-photon latency or a direct relative latency benchmark.",
+    "Both RSS values grew. This five-minute Linux workload does not establish multi-hour stability, feature parity, cross-platform resource use or maximum throughput.",
+    "The completed background cohort is retained unchanged and was measured separately. Do not subtract its averages from this run to estimate frontend costs."
+  ]
+}

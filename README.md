@@ -1,5 +1,6 @@
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="ui/public/brand/genyra-light.png"><img src="ui/public/brand/genyra-dark.png" width="300" alt="Genyra LLC"></picture></p>
+<p align="center"><a href="https://genyra.com"><picture><source media="(prefers-color-scheme: dark)" srcset="ui/public/brand/genyra-light.png"><img src="ui/public/brand/genyra-dark.png" width="300" alt="Genyra LLC"></picture></a></p>
 <h1 align="center">Genyra Snitch</h1>
+<p align="center"><strong>Linux alpha · Native desktop 0.1.0-alpha.5</strong></p>
 <p align="center"><strong>Know what your apps connect to.</strong><br>Network visibility, application firewall controls and local investigation tools — by Genyra LLC.</p>
 <p align="center"><a href="https://github.com/GenyraLLC/genyra-snitch/actions">Builds</a> · <a href="docs/FEATURES.md">Feature coverage</a> · <a href="docs/PERFORMANCE.md">Resource usage</a> · <a href="docs/BUILD.md">Build &amp; run</a></p>
 
@@ -11,6 +12,23 @@ All current development is on **`main`**, including the native desktop. Full app
 
 The native desktop also has an optional **background monitoring** mode and native
 startup-service controls. See [setup, privileges and lifecycle](docs/BACKGROUND-SERVICE.md).
+
+### Native interface — Linux alpha
+
+Actual native renders with **entirely fictional example data**. No personal
+servers, real devices or private connections appear in these screenshots.
+
+<table>
+<tr><th>Light mode · alpha</th><th>Dark mode · alpha</th></tr>
+<tr>
+<td><a href="docs/images/native-light.png"><img src="docs/images/native-light.png" alt="Genyra Snitch Linux alpha in light mode, showing synthetic example traffic" width="100%"></a></td>
+<td><a href="docs/images/native-dark.png"><img src="docs/images/native-dark.png" alt="Genyra Snitch Linux alpha in dark mode, showing synthetic example traffic" width="100%"></a></td>
+</tr>
+</table>
+
+[Full-size gallery, provenance and reproduction](docs/images/README.md).
+The Rust [gallery fixture](examples/gallery_fixture.rs) uses reserved `.example`
+names and documentation IP ranges; it performs no capture or host inspection.
 
 ### What you get
 
@@ -66,17 +84,36 @@ For live capture, run the binary with the required privileges; see [live capture
 
 ### Measured resource use
 
-On **4 November 2026**, fresh Python and current Rust collectors captured the same real interface concurrently for **five minutes**, after a 45-second warm-up, with no frontend attached:
+On **4 November 2026**, concurrent real-traffic Linux comparisons measured each
+mode for **five minutes after a 45-second warm-up**. The application run used
+the revised native alpha.5 UI and counted every collector, frontend and helper
+process. CPU percentages use **one logical core = 100%**; RSS values are means.
 
-| Measurement | Python collector | Current Rust collector |
-| --- | ---: | ---: |
-| Average CPU, one logical core = 100% | 104.36% | 1.83% |
-| Mean RSS | 109.94 MiB | 44.89 MiB |
-| RSS at measurement end | 111.33 MiB | 45.52 MiB |
+| Mode | Original CPU | Native CPU | Original RSS | Native RSS |
+| --- | ---: | ---: | ---: | ---: |
+| Background collector | 104.36% | 1.83% | 109.94 MiB | 44.89 MiB |
+| Complete application open | 324.33% | 10.16% | 1,279.49 MiB | 171.89 MiB |
 
-This workload measured **98.24% lower CPU** and **59.17% lower mean RSS** for Rust. It excludes the desktop and optional models. Capture defaults differ: Rust uses a 4,096-byte snapshot without promiscuous mode; Python uses 65,535 bytes with promiscuous mode. This is a workload-specific implementation comparison, not proof of identical capture policies, complete parity or multi-hour stability. Rust reported zero libpcap drops; Python's API does not expose kernel drops.
+In these workloads, native mean RSS was **59.17% lower in background mode** and
+**86.57% lower with the application open**. Whole-app **PSS**, which apportions
+shared resident pages, was **755.24 MiB versus 113.77 MiB**: **84.94% lower**.
+Native used two counted processes versus the original's nine.
 
-The [dated report and aggregate data](docs/benchmarks/2026-11-04-linux-capture.md) identify builds, hardware, packet counts and methodology. The [resource guide](docs/PERFORMANCE.md) also retains the earlier 20-second sample, which showed lower native CPU but higher RSS. Traffic, state, GeoIP, inspection and optional models change resource use; the new result does not describe older installed builds.
+![Measured Linux background and application resources](docs/benchmarks/2026-11-04-resource-modes.png)
+
+**Scope and trade-offs:** capture policies and feature coverage differ. Native
+update callbacks averaged **38.16/s**, versus Electron rAF at **116.39/s**; this
+is not equal-cadence rendering or hardware-presented FPS. Native application
+RSS grew **18.44 MiB** during its window. The results support lower process
+resource use in these runs, not multi-hour stability, complete parity or a
+universal performance guarantee. They exclude external model servers and GPU VRAM.
+
+The [full application report](docs/benchmarks/2026-11-04-linux-application.md)
+includes memory growth, timing probes, exact data and build identities. The
+[background report](docs/benchmarks/2026-11-04-linux-capture.md) and
+[resource guide](docs/PERFORMANCE.md) retain the earlier sample with higher
+native RSS. The background cohort was reused unchanged; its averages must not
+be subtracted from the separate application cohort to estimate frontend costs.
 
 ### Privacy and provenance
 

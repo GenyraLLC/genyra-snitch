@@ -8,9 +8,9 @@ either collector. The current Rust collector used less CPU and RSS in this run.
 
 [Vector chart](2026-11-04-linux-capture.svg). The chart is generated directly
 from the numeric CSV/JSON with `scripts/plot-resource-comparison.py`; it does
-not rerun or change the measurements. A new whole-application and visual-timing
-comparison is paused during the native UI revision. No preliminary application
-figures are substituted for a completed test of that revised interface.
+not rerun or change the measurements. The separate [completed application and
+visual-timing comparison](2026-11-04-linux-application.md) tests the revised
+native interface; it does not substitute a collector sample for a whole-app test.
 
 | Measurement | Original Python collector | Current Rust collector |
 | --- | ---: | ---: |

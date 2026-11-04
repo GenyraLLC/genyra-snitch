@@ -1,0 +1,27 @@
+{
+  "product": "Genyra Snitch",
+  "version": "0.1.0-alpha.5",
+  "maturity": "Linux alpha",
+  "capture": "Actual native framebuffer, not a composited desktop capture",
+  "fixture_source": "examples/gallery_fixture.rs",
+  "personal_data_used": false,
+  "data_namespaces": [
+    "192.0.2.0/24",
+    "198.51.100.0/24",
+    ".example"
+  ],
+  "files": [
+    {
+      "file": "native-light.png",
+      "width": 1440,
+      "height": 1040,
+      "sha256": "cab8d923f65b0b3afe3d9c667655737753dac14bf67e68b9d87619721f2a1708"
+    },
+    {
+      "file": "native-dark.png",
+      "width": 1440,
+      "height": 1040,
+      "sha256": "e022574d7afe5238a54c1d652b37ada8616056ddbbb5359bd649d0ab40fb5f86"
+    }
+  ]
+}

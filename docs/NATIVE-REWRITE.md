@@ -37,9 +37,9 @@ For visual checks, `--theme light|dark` and `--language CODE` override the saved
 display choice for that launch. `--performance-log NEW_FILE.csv` enables opt-in
 numeric update-callback and repaint-watchdog samples; it records no traffic or
 inputs, refuses to replace existing files and creates a private file on Unix.
-Callback cadence is not hardware-presented FPS. The application comparison was
-paused for this UI revision; the completed collector-only measurement remains
-in [the resource guide](PERFORMANCE.md).
+Callback cadence is not hardware-presented FPS. The revised UI has a separate
+[completed whole-application and timing comparison](benchmarks/2026-11-04-linux-application.md),
+alongside the unchanged collector-only evidence in [the resource guide](PERFORMANCE.md).
 
 On Wayland, frame presentation does not wait for vblank. This prevents a
 reproduced NVIDIA EGL stall when the window moves to an inactive workspace,

@@ -1,5 +1,24 @@
 # Understanding resource usage
 
+## Completed full-application comparison
+
+After the native overview revision, a separate five-minute Linux run counted
+each collector and its complete frontend process tree. Original Python/Electron
+averaged **324.33% of one logical core**, **1,279.49 MiB summed RSS** and
+**755.24 MiB PSS**. Native Rust averaged **10.16%**, **171.89 MiB summed RSS**
+and **113.77 MiB PSS**. Both compositor windows were 1440 × 1040, dark, English
+and in graph view; timing probes were enabled.
+
+This run showed **86.57% lower summed RSS and 84.94% lower PSS** for the native
+application. Shared pages affect summed RSS, so PSS is also reported. Native
+RSS grew by **18.44 MiB** during the window; this is not a long-term stability
+claim. Native update callbacks averaged 38.16/s versus Electron rAF at 116.39/s.
+The cadence and probe mechanisms differ, so this is not equal-cadence rendering
+or proof of faster presented FPS.
+
+See the [full application report, timing results and evidence](benchmarks/2026-11-04-linux-application.md).
+The existing background measurements below were retained without rerunning them.
+
 ## Current five-minute capture sample — 4 November 2026
 
 Fresh Python and current Rust collector processes captured the same real
@@ -61,7 +80,7 @@ These bounds constrain collector buffers, not every allocation in a full system.
 
 RSS is memory currently resident in one process. Linux also caches files read by the application; those pages can be charged to a systemd cgroup. `MemoryCurrent` can therefore exceed the process RSS substantially. Reclaimable file cache is not equivalent to a Python heap leak. Inspect `/proc/<pid>/status`, the service's `memory.stat`, and disk usage separately before comparing numbers.
 
-The native desktop adds one Rust renderer process using egui/eframe and OpenGL. It does not start Chromium or Electron. The earlier optional Electron frontend does add browser renderer processes. Count the collector and every frontend process when evaluating desktop memory; the table above is collector-only and is not a measurement of the current native desktop.
+The native desktop adds one Rust renderer process using egui/eframe and OpenGL. It does not start Chromium or Electron. The earlier optional Electron frontend does add browser renderer processes. Count the collector and every frontend process when evaluating desktop memory. The capture tables exclude rendering; the separate alpha.5 application cohort above includes the collector and complete frontend process trees.
 
 The native scene limits force simulation to 384 nodes and concurrent traffic pulses to 192. While animating, it requests scene repaints at 50 ms intervals; it stops requesting animation frames when the scene settles. Minimized windows suspend their polling and stream. Bounded desktop I/O queues prevent an unbounded backlog, but these controls are not a fixed CPU or RSS guarantee.
 
