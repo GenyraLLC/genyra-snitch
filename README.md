@@ -3,13 +3,11 @@
 <p align="center"><strong>Know what your apps connect to.</strong><br>Network visibility, application firewall controls and local investigation tools — by Genyra LLC.</p>
 <p align="center"><a href="https://github.com/GenyraLLC/genyra-snitch/actions">Builds</a> · <a href="docs/FEATURES.md">Feature coverage</a> · <a href="docs/PERFORMANCE.md">Resource usage</a> · <a href="docs/BUILD.md">Build &amp; run</a></p>
 
-Genyra Snitch is a native Rust fork of [Snitch by aiXis Studio](https://github.com/aixisstudio/Snitch). It preserves the familiar React interface, desktop shell, REST/WebSocket contracts and Linux security tools while replacing the Python backend with one native collector. There is no Python interpreter in the deployed application.
+Genyra Snitch is a Rust fork of [Snitch by aiXis Studio](https://github.com/aixisstudio/Snitch), with a native desktop and collector for network visibility, application controls and local investigation. The native application requires no Python, Node or browser runtime.
 
-This is a **Linux x86-64 alpha**, not a claim of cross-platform parity. The 77 upstream API routes are implemented; Windows and macOS backends have not been ported. Native detection algorithms can produce different scores from Python. [Feature coverage and limits](docs/FEATURES.md) distinguish implementation from validation.
+This is a **Linux x86-64 alpha**. Windows and macOS adapters, native builds and synthetic service-lifecycle tests are available, while live capture and privileged feature parity on those platforms remain under validation. Native detection algorithms can produce different scores from Python. [Feature coverage and limits](docs/FEATURES.md) distinguish implementation from validation.
 
-The **full native desktop and cross-platform rewrite is in progress**, on the
-`native-desktop` branch. See [current work and outstanding gaps](docs/NATIVE-REWRITE.md).
-The existing alpha does not establish full application or cross-platform parity.
+All current development is on **`main`**, including the native desktop. Full application and cross-platform parity remain in progress; see [current work and outstanding gaps](docs/NATIVE-REWRITE.md). The earlier React interface is retained for compatibility checks and reference.
 
 The native desktop also has an optional **background monitoring** mode and native
 startup-service controls. See [setup, privileges and lifecycle](docs/BACKGROUND-SERVICE.md).
@@ -27,16 +25,16 @@ Administrator-only tools still require administrator privileges. Missing permiss
 
 ### Build and try
 
-Install the dependencies listed in [the build guide](docs/BUILD.md), then:
+On Linux, install the native dependencies listed in [the build guide](docs/BUILD.md), then:
 
 ```sh
-npm --prefix ui ci
-npm --prefix ui run build
 cargo build --release --locked
-./target/release/genyra-snitch --demo --port 8000
+cargo build --release --locked --manifest-path desktop/Cargo.toml
+cp target/release/genyra-snitch desktop/target/release/
+./desktop/target/release/genyra-snitch-desktop --demo
 ```
 
-Open **http://127.0.0.1:8000**. The browser asks for the token saved in `$XDG_DATA_HOME/genyra-snitch/api_token.txt` (normally `~/.local/share/genyra-snitch/api_token.txt`). Demo mode generates synthetic connections and never captures or enforces host policy.
+This opens the native desktop with synthetic connections. Demo mode never captures or enforces host policy. For a Linux app-menu entry, run the desktop binary with `--install`; see [native desktop setup](docs/NATIVE-REWRITE.md#linux-app-menu-installation).
 
 For live capture, run the binary with the required privileges; see [live capture and desktop usage](docs/BUILD.md). To migrate an existing installation, stop the old collector, back up its data and token, then point `SNITCH_DATA_DIR` at that directory. Never run two collectors against the same database.
 

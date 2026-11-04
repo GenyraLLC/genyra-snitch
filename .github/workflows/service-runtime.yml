@@ -1,7 +1,7 @@
 name: Native macOS service runtime
 on:
   push:
-    branches: [native-desktop]
+    branches: [main]
     paths: ['.github/workflows/service-runtime.yml', 'tests/macos-service.sh']
   workflow_dispatch:
     inputs:
