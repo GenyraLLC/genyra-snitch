@@ -23,6 +23,31 @@ startup-service controls. See [setup, privileges and lifecycle](docs/BACKGROUND-
 
 Administrator-only tools still require administrator privileges. Missing permissions are reported; a configured rule is not described as enforced when the OS rejected it. The application starts on loopback and requires its local API token.
 
+### Technical specifications
+
+| Component | Current implementation |
+| --- | --- |
+| Native application | Rust 2021; separate collector and desktop executables. No Python, Node, Electron or browser runtime required for the native application. |
+| Desktop rendering | egui/eframe 0.33 with Glow/OpenGL; Wayland and X11 on Linux. Offline world map, connection graph and measured-traffic pulses. |
+| Capture | libpcap on Linux/macOS; separately installed Npcap on Windows. IPv4, IPv6 and ARP filter; non-promiscuous capture; 4,096-byte snapshot length; requested 4 MiB capture buffer. Longer packets may be truncated in inspection/export. |
+| Collector scheduling | Tokio with two async runtime workers, plus dedicated capture and other task workers. This is not a two-thread limit for the whole process. |
+| Live state | Up to 4,096 remote graph nodes and 8,192 cached names; approximately 4 MiB of retained packet bytes, plus metadata. |
+| Desktop workload | Force simulation limited to 384 nodes; up to 192 traffic pulses; active scene animation requests at 50 ms intervals. Bounded I/O queues; minimized windows suspend polling and streaming. |
+| Storage | Local SQLite in WAL mode, batched writes. Traffic/history retention defaults to 24 hours and is configurable from 1 to 8,760 hours; stored alert history is preserved. Disk use has no fixed total cap. |
+| Geolocation | Optional local MaxMind City/ASN databases, mapped read-only into memory; no online map-tile service required. GeoIP is an estimate, not device GPS. |
+| Local API | Authenticated HTTP/WebSocket on loopback by default; persistent random 256-bit API token. Desktop reads credentials from a local file. |
+| Background operation | Optional collector-only mode after closing the desktop. Startup integration: Linux systemd user service, macOS launchd LaunchAgent, Windows native SCM service. |
+| Optional inference | Native llama.cpp with user-supplied GGUF weights, or a local Ollama endpoint. Model memory and CPU are additional costs. |
+| License / origin | AGPL-3.0; independent Genyra fork of aiXis Studio's Snitch, with upstream notices retained. |
+
+| Platform | Validation scope |
+| --- | --- |
+| Linux x86-64 | Alpha; live capture tested. Native desktop, service lifecycle and targeted Wayland/NVIDIA occlusion regression tested. Privileged features require separate permissions. |
+| macOS ARM64 | Native CI builds/tests on macOS 14; synthetic LaunchAgent lifecycle tested. Live capture and privileged feature parity remain under validation. |
+| Windows x86-64 | Native CI builds/tests on Windows Server 2022; synthetic SCM lifecycle tested. Live use requires Npcap; capture and privileged feature parity remain under validation. |
+
+These are tested targets, not minimum OS versions or a guarantee of feature parity. Minimum RAM, sustained maximum throughput and a complete native-desktop memory baseline have not been established. See [build requirements](docs/BUILD.md), [platform gaps](docs/NATIVE-REWRITE.md) and [resource measurements](docs/PERFORMANCE.md).
+
 ### Build and try
 
 On Linux, install the native dependencies listed in [the build guide](docs/BUILD.md), then:

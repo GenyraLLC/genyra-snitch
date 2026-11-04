@@ -21,7 +21,7 @@ The native process used about **84% less CPU in this sample**, with **about 24 M
 - Forensic packet ring: about 4 MiB of captured frame bytes, plus metadata.
 - TLS certificate reassembly: 256 flows, up to 16 KiB per flow.
 - Coalesced WebSocket updates: four times per second, with bounded event queues and subscriber limits.
-- SQLite writes are batched; traffic/history retention is 24 hours. Stored alert history is preserved rather than silently discarded.
+- SQLite writes are batched; traffic/history retention defaults to 24 hours, configurable from 1 to 8,760 hours. Stored alert history is preserved rather than silently discarded. There is no fixed total database size cap.
 - Process attribution uses periodic socket-table scans. Native reverse-DNS lookup has bounded concurrency and retry handling.
 - Integrity hashing uses a single worker and a bounded file cache. Expensive checks have time limits; incomplete module snapshots do not establish false Merkle baselines.
 - NFQUEUE pending decisions and inspection outputs have explicit capacities and timeouts.
@@ -32,7 +32,11 @@ These bounds constrain collector buffers, not every allocation in a full system.
 
 RSS is memory currently resident in one process. Linux also caches files read by the application; those pages can be charged to a systemd cgroup. `MemoryCurrent` can therefore exceed the process RSS substantially. Reclaimable file cache is not equivalent to a Python heap leak. Inspect `/proc/<pid>/status`, the service's `memory.stat`, and disk usage separately before comparing numbers.
 
-The desktop application adds Chromium/Electron renderer processes. Count the whole application tree when evaluating desktop memory; the table above is collector-only.
+The native desktop adds one Rust renderer process using egui/eframe and OpenGL. It does not start Chromium or Electron. The earlier optional Electron frontend does add browser renderer processes. Count the collector and every frontend process when evaluating desktop memory; the table above is collector-only and is not a measurement of the current native desktop.
+
+The native scene limits force simulation to 384 nodes and concurrent traffic pulses to 192. While animating, it requests scene repaints at 50 ms intervals; it stops requesting animation frames when the scene settles. Minimized windows suspend their polling and stream. Bounded desktop I/O queues prevent an unbounded backlog, but these controls are not a fixed CPU or RSS guarantee.
+
+GeoIP databases are mapped read-only rather than loaded into heap byte vectors. Pages accessed by the collector can still contribute to RSS and file-cache accounting; memory mapping does not make database memory use zero. Closing the native window with background monitoring enabled releases the desktop process while leaving the collector running.
 
 ## Optional operations change the budget
 
@@ -42,4 +46,4 @@ Native GGUF inference launches llama.cpp with two CPU threads and a bounded gene
 
 ## Reproducing a useful comparison
 
-Use an equivalent interface, traffic workload, GeoIP data and enabled settings. Allow startup to settle, record CPU time and RSS over a stated window, and record libpcap drops. Compare active capture with active capture. For the desktop, include all renderer processes. For models or inspection, report those jobs separately. Never substitute a synthetic demo's resource use for live-capture measurements.
+Use an equivalent interface, traffic workload, GeoIP data and enabled settings. Allow startup to settle, record CPU time and RSS over a stated window, and record libpcap drops. Compare active capture with active capture. For the desktop, include the collector and all frontend processes, and measure visible, minimized and closed-window/background phases separately over a sustained run. For models or inspection, report those jobs separately. Never substitute a synthetic demo's resource use for live-capture measurements. Minimum RAM and sustained maximum throughput have not been established.

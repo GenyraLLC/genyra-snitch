@@ -1,8 +1,8 @@
 # Build and run Genyra Snitch
 
-## Supported build
+## Native Linux build
 
-Linux x86-64 is the tested native target. Use Rust stable, Node.js 24+, a C compiler, pkg-config, clang/libclang, libpcap, SQLite, libbpf and libnetfilter_queue development headers. The first Cargo build downloads the pinned Frida devkit from the official Frida release repository. Python 3 is required only for development integration checks.
+Linux x86-64 is the live-capture-tested alpha target. Use Rust stable, a C compiler, pkg-config, clang/libclang, libpcap, SQLite, libbpf and libnetfilter_queue development headers. The native desktop also needs a graphical session and an OpenGL-capable driver, with Wayland or X11 on Linux. The first Cargo build downloads the pinned Frida devkit from the official Frida release repository. Node.js is needed only for the optional earlier React/Electron frontend; Python 3 is used only by development checks. Neither is needed to run the native application.
 
 Debian/Ubuntu prerequisites:
 
@@ -17,20 +17,20 @@ On Arch Linux, install the corresponding `base-devel`, `clang`, `libpcap`, `sqli
 ```sh
 git clone https://github.com/GenyraLLC/genyra-snitch.git
 cd genyra-snitch
-npm --prefix ui ci
-npm --prefix ui run build
 cargo build --release --locked
+cargo build --release --locked --manifest-path desktop/Cargo.toml
+cp target/release/genyra-snitch desktop/target/release/
 ```
 
 ## Synthetic preview
 
 ```sh
-./target/release/genyra-snitch --demo --port 8000
+./desktop/target/release/genyra-snitch-desktop --demo
 ```
 
-Visit `http://127.0.0.1:8000` and paste the token from `~/.local/share/genyra-snitch/api_token.txt`. If `XDG_DATA_HOME` is set, the directory is `$XDG_DATA_HOME/genyra-snitch` instead. A custom `SNITCH_DATA_DIR` takes precedence. The token file is created with mode 0600; do not post it in an issue or commit it.
+The native desktop starts a synthetic collector, reads its local identity and opens a native window. The default Linux data directory is `~/.local/share/genyra-snitch`. If `XDG_DATA_HOME` is set, it is `$XDG_DATA_HOME/genyra-snitch` instead. A custom `SNITCH_DATA_DIR` takes precedence, and explicit `--data-dir` takes precedence over that. The token file is created with mode 0600 on Unix; do not post it in an issue or commit it.
 
-Demo mode uses synthetic traffic. Process mutation and kernel enforcement are disabled there. Ctrl+C shuts down the collector and flushes its database.
+Demo mode uses synthetic traffic. Process mutation and kernel enforcement are disabled there. With background monitoring off, closing a desktop-owned session stops its collector and flushes the database. An independently running collector is left running when an attached desktop closes.
 
 ## Live capture
 
@@ -43,16 +43,38 @@ sudo env SNITCH_DATA_DIR="$PWD/data" SNITCH_BIND=127.0.0.1 \
 
 Replace `eth0` with your interface name. Running elevated can create root-owned data; use a dedicated directory. For a persistent unprivileged service with capture only, adapt the example below and grant only CAP_NET_RAW. Firewall/NFQUEUE require CAP_NET_ADMIN; eBPF, process memory access and cgroup controls may require root or additional kernel capabilities. These are separate privileges, not an automatic consequence of capture access.
 
-[`packaging/genyra-snitch@.service`](../packaging/genyra-snitch@.service) is a capture-only service template for an existing Linux user. Install the binary as `/usr/local/bin/genyra-snitch`, the built UI as `/usr/local/share/genyra-snitch/ui`, then install and adapt the template. It stores service data in `/var/lib/genyra-snitch-USERNAME` and does not grant firewall, BPF or debugging privileges.
+[`packaging/genyra-snitch@.service`](../packaging/genyra-snitch@.service) is a capture-only service template for an existing Linux user. Install the binary as `/usr/local/bin/genyra-snitch`, then install and adapt the template. If using the optional web frontend, also install its built files as `/usr/local/share/genyra-snitch/ui`. The service stores data in `/var/lib/genyra-snitch-USERNAME` and does not grant firewall, BPF or debugging privileges.
 
-## Desktop application
+To attach the native desktop to that collector, run as your desktop user:
 
 ```sh
+./desktop/target/release/genyra-snitch-desktop \
+  --connect http://127.0.0.1:8000 --token-file /absolute/path/to/data/api_token.txt
+```
+
+The desktop user must be able to read the token. Do not launch the graphical desktop as root. For a native Linux app-menu entry, place the collector beside the desktop and run `genyra-snitch-desktop --install`. See [desktop installation](NATIVE-REWRITE.md#linux-app-menu-installation) and [optional background/startup services](BACKGROUND-SERVICE.md).
+
+## Experimental Windows and macOS builds
+
+CI builds the collector and native desktop on Windows Server 2022 x86-64 and macOS 14 ARM64. These are validation environments, not minimum OS versions. Native runtime and privileged-feature parity are incomplete; see [platform limitations](NATIVE-REWRITE.md#experimental-platform-adapters).
+
+On macOS, install Xcode command-line tools, Rust stable and libpcap (`brew install libpcap`), then build both Cargo manifests as above. Put the collector beside the desktop. Live capture needs access to `/dev/bpf`; a user LaunchAgent does not grant that permission.
+
+On Windows, use Rust stable with the MSVC toolchain, Visual Studio C++ build tools, LLVM/libclang, the Npcap development SDK and shared SQLite development libraries. CI records the exact library setup in [the platform workflow](../.github/workflows/platforms.yml). Build the root and desktop manifests, then put `genyra-snitch.exe` and `sqlite3.dll` beside `genyra-snitch-desktop.exe`. Install Npcap separately for live capture; the driver is not redistributed. Demo mode and synthetic service tests do not establish live capture support.
+
+## Optional compatibility frontend
+
+The earlier React web UI and Electron shell are retained for compatibility and reference. These commands are separate from the native desktop build and require Node.js 24+:
+
+```sh
+npm --prefix ui ci
+npm --prefix ui run build
+# Web UI: start the collector, open its loopback URL and supply its local token.
 npm --prefix electron ci
 npm --prefix electron start
 ```
 
-The development shell runs the backend without elevation. To package the full Linux desktop application:
+The development shell runs the backend without elevation. To package this compatibility Electron frontend on Linux:
 
 ```sh
 npm --prefix electron run build:dir
@@ -86,10 +108,11 @@ Ollama-compatible endpoints are limited to loopback. Embedded mode requires a na
 ## Test and package
 
 ```sh
+# Full checks also cover the optional React/Electron frontend and use Node/Python:
 ./scripts/check.sh
 # Kernel integration tests: disposable namespaces only, with administrator approval
 sudo ./scripts/privileged-check.sh
-# After building the native agent as well:
+# Optional legacy web-UI/agent bundle (requires ui/dist from the frontend build):
 cargo build --release --locked --manifest-path agent/Cargo.toml
 ./scripts/bundle.sh
 ```
