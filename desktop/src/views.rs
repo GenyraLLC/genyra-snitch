@@ -7,6 +7,141 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
+fn device_table(ui: &mut egui::Ui, devices: &[&Value]) -> Option<Value> {
+    let mut selected = None;
+    let table_width = ui.available_width().max(1000.);
+    // A table must own its column state. Sharing the default table ID with
+    // Applications recycled incompatible widths when switching pages.
+    egui::ScrollArea::horizontal()
+        .id_salt("devices-horizontal")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.set_width(table_width);
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            egui_extras::TableBuilder::new(ui)
+                .id_salt("lan-devices-table-v2")
+                .striped(true)
+                .resizable(true)
+                .column(egui_extras::Column::initial(190.).at_least(140.).clip(true))
+                .column(egui_extras::Column::initial(310.).at_least(200.).clip(true))
+                .column(egui_extras::Column::initial(175.).at_least(165.).clip(true))
+                .column(
+                    egui_extras::Column::remainder()
+                        .resizable(false)
+                        .at_least(160.)
+                        .clip(true),
+                )
+                .column(egui_extras::Column::exact(100.).clip(true))
+                .header(36., |mut row| {
+                    for label in ["Device", "Address", "MAC address", "Vendor", "Status"] {
+                        row.col(|ui| {
+                            ui.strong(label);
+                        });
+                    }
+                })
+                .body(|body| {
+                    body.rows(42., devices.len(), |mut row| {
+                        let device = devices[row.index()];
+                        let label = ["hostname", "label", "device_type"]
+                            .iter()
+                            .find_map(|key| device[*key].as_str().filter(|s| !s.is_empty()))
+                            .unwrap_or("Unnamed device");
+                        row.col(|ui| {
+                            if ui
+                                .selectable_label(false, label)
+                                .on_hover_text(label)
+                                .clicked()
+                            {
+                                selected = Some(device.clone());
+                            }
+                        });
+                        for key in ["ip", "mac", "vendor"] {
+                            let text = device[key]
+                                .as_str()
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or("—");
+                            row.col(|ui| {
+                                let label = if key == "vendor" {
+                                    RichText::new(text)
+                                } else {
+                                    RichText::new(text).monospace()
+                                };
+                                ui.add(egui::Label::new(label).truncate())
+                                    .on_hover_text(text);
+                            });
+                        }
+                        row.col(|ui| {
+                            let online = device["online"] == true;
+                            ui.colored_label(
+                                if online {
+                                    Color32::from_rgb(99, 193, 143)
+                                } else {
+                                    MUTED
+                                },
+                                if online { "Online" } else { "Last seen" },
+                            );
+                        });
+                    });
+                });
+        });
+    selected
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+    #[test]
+    fn device_identifiers_remain_on_one_line_at_narrow_and_wide_sizes() {
+        let ip = "2001:db8:1234:5678:90ab:cdef:1234:5678";
+        let mac = "b2:aa:bb:cc:dd:ee";
+        let device = json!({"hostname":"Test workstation","ip":ip,"mac":mac,"vendor":"A long manufacturer name for layout verification","online":true});
+        let ctx = egui::Context::default();
+        for width in [640., 960., 1320., 1920.] {
+            let mut output = None;
+            for _ in 0..2 {
+                output = Some(ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            Vec2::new(width, 650.),
+                        )),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            device_table(ui, &[&device]);
+                        });
+                    },
+                ));
+            }
+            fn inspect(shape: &egui::Shape, ip: &str, mac: &str, found: &mut usize) {
+                match shape {
+                    egui::Shape::Text(text)
+                        if [ip, mac, "Test workstation"].contains(&text.galley.text()) =>
+                    {
+                        assert_eq!(
+                            text.galley.rows.len(),
+                            1,
+                            "device identifier wrapped across rows"
+                        );
+                        *found += 1;
+                    }
+                    egui::Shape::Vec(shapes) => {
+                        for shape in shapes {
+                            inspect(shape, ip, mac, found);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let mut found = 0;
+            for shape in output.unwrap().shapes {
+                inspect(&shape.shape, ip, mac, &mut found);
+            }
+            assert_eq!(found, 3, "device cells disappeared at width {width}");
+        }
+    }
+}
 #[derive(Default)]
 pub(super) struct Application {
     name: String,
@@ -51,6 +186,75 @@ impl Views {
     }
 }
 impl Desktop {
+    pub(super) fn native_preferences(&mut self, ui: &mut egui::Ui) {
+        for (heading, keys) in [
+            (
+                "Traffic and history",
+                &[
+                    "ports",
+                    "excluded_processes",
+                    "whitelisted_ips",
+                    "watchlist",
+                    "retention_hours",
+                    "upload_threshold_mb",
+                ][..],
+            ),
+            (
+                "Protection",
+                &[
+                    "integrity_watch",
+                    "kill_switch_enabled",
+                    "ask_enabled",
+                    "ask_timeout",
+                    "ask_failopen",
+                    "ebpf_probe",
+                ][..],
+            ),
+            (
+                "Local explanations",
+                &[
+                    "slm_enabled",
+                    "slm_mode",
+                    "slm_endpoint",
+                    "slm_model",
+                    "slm_model_path",
+                ][..],
+            ),
+            (
+                "Notifications and threat intelligence",
+                &[
+                    "ti_provider",
+                    "ti_api_key",
+                    "webhook_enabled",
+                    "webhook_url",
+                    "telegram_chat_id",
+                    "syslog_addr",
+                    "syslog_format",
+                ][..],
+            ),
+            ("Peer collectors", &["gossip_enabled", "gossip_peers"][..]),
+        ] {
+            ui.add_space(12.);
+            ui.group(|ui| {
+                ui.set_width(ui.available_width().min(1050.));
+                ui.strong(heading);
+                ui.add_space(8.);
+                egui::Grid::new(("preferences", heading))
+                    .num_columns(2)
+                    .min_col_width(250.)
+                    .spacing([24., 12.])
+                    .show(ui, |ui| {
+                        for key in keys {
+                            if let Some(value) = self.settings.get_mut(*key) {
+                                ui.label(super::title(key));
+                                self.settings_dirty |= super::edit_value(ui, key, value);
+                                ui.end_row();
+                            }
+                        }
+                    });
+            });
+        }
+    }
     pub(super) fn native_apps(&mut self, ui: &mut egui::Ui) {
         let filter = self.filter.to_lowercase();
         let entries: Vec<_> = self
@@ -69,12 +273,19 @@ impl Desktop {
         let mut job = None;
         let mut inspect = None;
         egui_extras::TableBuilder::new(ui)
+            .id_salt("applications-table-v2")
             .striped(true)
-            .column(egui_extras::Column::remainder())
-            .column(egui_extras::Column::auto())
-            .column(egui_extras::Column::auto())
-            .column(egui_extras::Column::auto())
-            .column(egui_extras::Column::auto())
+            .resizable(true)
+            .column(
+                egui_extras::Column::remainder()
+                    .resizable(false)
+                    .at_least(160.)
+                    .clip(true),
+            )
+            .column(egui_extras::Column::initial(180.).at_least(100.).clip(true))
+            .column(egui_extras::Column::initial(115.).at_least(100.).clip(true))
+            .column(egui_extras::Column::initial(125.).at_least(100.).clip(true))
+            .column(egui_extras::Column::exact(95.))
             .header(32., |mut row| {
                 for heading in [
                     "Application",
@@ -92,12 +303,20 @@ impl Desktop {
                 body.rows(34., entries.len(), |mut row| {
                     let app = entries[row.index()];
                     row.col(|ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                         if ui.selectable_label(false, &app.name).clicked() {
                             inspect = app.pids.iter().next().copied();
                         }
                     });
                     row.col(|ui| {
                         ui.label(
+                            app.pids
+                                .iter()
+                                .map(u32::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        )
+                        .on_hover_text(
                             app.pids
                                 .iter()
                                 .map(u32::to_string)
@@ -154,45 +373,7 @@ impl Desktop {
             .filter(|v| filter.is_empty() || v.to_string().to_lowercase().contains(&filter))
             .collect();
         ui.label(format!("{} observed LAN devices", devices.len()));
-        let mut selected = None;
-        egui_extras::TableBuilder::new(ui)
-            .striped(true)
-            .column(egui_extras::Column::remainder())
-            .column(egui_extras::Column::auto())
-            .column(egui_extras::Column::auto())
-            .column(egui_extras::Column::remainder())
-            .column(egui_extras::Column::auto())
-            .header(32., |mut row| {
-                for label in ["Device", "Address", "MAC", "Vendor", "Traffic"] {
-                    row.col(|ui| {
-                        ui.strong(label);
-                    });
-                }
-            })
-            .body(|body| {
-                body.rows(34., devices.len(), |mut row| {
-                    let device = devices[row.index()];
-                    row.col(|ui| {
-                        if ui
-                            .selectable_label(
-                                false,
-                                device["label"].as_str().unwrap_or("Unknown device"),
-                            )
-                            .clicked()
-                        {
-                            selected = Some(device.clone());
-                        }
-                    });
-                    for key in ["ip", "mac", "vendor"] {
-                        row.col(|ui| {
-                            ui.label(device[key].as_str().unwrap_or("—"));
-                        });
-                    }
-                    row.col(|ui| {
-                        ui.label(human_bytes(device["bytes"].as_u64().unwrap_or(0)));
-                    });
-                })
-            });
+        let selected = device_table(ui, &devices);
         if let Some(selected) = selected {
             self.selected = Some(selected);
         }
@@ -347,9 +528,13 @@ impl Desktop {
             ));
         }
         egui_extras::TableBuilder::new(ui)
+            .id_salt("timeline-table-v2")
             .striped(true)
-            .column(egui_extras::Column::remainder())
-            .columns(egui_extras::Column::auto(), 3)
+            .column(egui_extras::Column::remainder().at_least(200.).clip(true))
+            .columns(
+                egui_extras::Column::initial(130.).at_least(90.).clip(true),
+                3,
+            )
             .header(32., |mut row| {
                 for label in ["Minute (UTC)", "Transferred", "Packets", "Alerts"] {
                     row.col(|ui| {

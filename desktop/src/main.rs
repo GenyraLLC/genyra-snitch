@@ -2,6 +2,7 @@
 //! A hidden/minimized window suspends polling; only the active view refreshes.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod feed;
+mod install;
 mod lifecycle;
 mod scene;
 mod views;
@@ -743,45 +744,48 @@ impl eframe::App for Desktop {
             .exact_width(185.)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.add_space(12.);
-                for (index, (name, _)) in PANELS.iter().enumerate() {
-                    if [0, 4, 10].contains(&index) {
+                egui::ScrollArea::vertical()
+                    .id_salt("navigation-scroll")
+                    .show(ui, |ui| {
                         ui.add_space(12.);
-                        ui.label(
-                            RichText::new(match index {
-                                0 => "VISIBILITY",
-                                4 => "SECURITY",
-                                _ => "WORKSPACE",
-                            })
-                            .size(10.)
-                            .color(MUTED),
-                        );
-                        ui.add_space(5.);
-                    }
-                    if ui
-                        .add_sized(
-                            [162., 29.],
-                            egui::Button::new(*name)
-                                .selected(self.panel == index)
-                                .frame(self.panel == index),
-                        )
-                        .clicked()
-                    {
-                        self.panel = index;
-                        if index < 3 && self.feed_connected {
-                            self.accept_data("/graph".into(), self.live.graph());
+                        for (index, (name, _)) in PANELS.iter().enumerate() {
+                            if [0, 4, 10].contains(&index) {
+                                ui.add_space(12.);
+                                ui.label(
+                                    RichText::new(match index {
+                                        0 => "VISIBILITY",
+                                        4 => "SECURITY",
+                                        _ => "WORKSPACE",
+                                    })
+                                    .size(10.)
+                                    .color(MUTED),
+                                );
+                                ui.add_space(5.);
+                            }
+                            if ui
+                                .add_sized(
+                                    [162., 29.],
+                                    egui::Button::new(*name)
+                                        .selected(self.panel == index)
+                                        .frame(self.panel == index),
+                                )
+                                .clicked()
+                            {
+                                self.panel = index;
+                                if index < 3 && self.feed_connected {
+                                    self.accept_data("/graph".into(), self.live.graph());
+                                }
+                                self.filter.clear();
+                                self.refresh = Instant::now() - Duration::from_secs(10);
+                            }
                         }
-                        self.filter.clear();
-                        self.refresh = Instant::now() - Duration::from_secs(10);
-                    }
-                }
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    ui.label(
-                        RichText::new("Genyra LLC\nLocal traffic stays local")
-                            .small()
-                            .color(MUTED),
-                    );
-                });
+                        ui.add_space(18.);
+                        ui.label(
+                            RichText::new("Genyra LLC\nLocal traffic stays local")
+                                .small()
+                                .color(MUTED),
+                        );
+                    });
             });
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -873,8 +877,7 @@ impl eframe::App for Desktop {
                                     .get("/settings")
                                     .is_some_and(|v| v["settings"].is_object()),
                             |ui| {
-                                self.settings_dirty |=
-                                    edit_value(ui, "Preferences", &mut self.settings);
+                                self.native_preferences(ui);
                             },
                         );
                     });
@@ -1168,33 +1171,45 @@ impl Drop for OwnedCollector {
 }
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
+    if args.iter().any(|a| a == "--install") {
+        return install::desktop(&args).map_err(Into::into);
+    }
     if args.iter().any(|a| a == "--version") {
         println!("Genyra Snitch native desktop {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     let arg = |name: &str| args.windows(2).find(|a| a[0] == name).map(|a| a[1].clone());
-    let (mut connection, child) = if let Some(base) = arg("--connect") {
-        let token_path = arg("--token-file")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| data_dir().join("api_token.txt"));
-        (
-            Connection::new(base, std::fs::read_to_string(token_path)?.trim().into())?,
-            None,
-        )
-    } else {
-        lifecycle::connect_or_start(args.iter().any(|a| a == "--demo"))?
+    let connected: Result<_, Box<dyn std::error::Error>> = (|| {
+        Ok(if let Some(base) = arg("--connect") {
+            let token_path = arg("--token-file")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| data_dir().join("api_token.txt"));
+            (
+                Connection::new(base, std::fs::read_to_string(token_path)?.trim().into())?,
+                None,
+            )
+        } else {
+            lifecycle::connect_or_start(args.iter().any(|a| a == "--demo"))?
+        })
+    })();
+    let (mut connection, child) = match connected {
+        Ok(connected) => connected,
+        Err(error) => return install::startup_error(error.to_string()),
     };
     connection.read_only = args.iter().any(|arg| arg == "--read-only");
     let capture = arg("--render-check")
         .or_else(|| arg("--screenshot"))
         .map(PathBuf::from);
     let render_check = arg("--render-check").is_some();
-    let initial_panel = if arg("--view").as_deref() == Some("map") {
-        1
-    } else if arg("--view").as_deref() == Some("settings") {
-        11
-    } else {
-        0
+    let initial_panel = match arg("--view").as_deref() {
+        Some("map") => 1,
+        Some("apps") => 2,
+        Some("devices") => 3,
+        Some("alerts") => 4,
+        Some("timeline") => 5,
+        Some("settings") => 11,
+        Some("packets") => 15,
+        _ => 0,
     };
     let icon =
         eframe::icon_data::from_png_bytes(include_bytes!("../../ui/public/brand/genyra-icon.png"))?;
@@ -1206,6 +1221,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .with_inner_size([1320., 850.])
             .with_min_inner_size([960., 640.])
             .with_visible(!render_check)
+            .with_app_id("com.genyra.snitch")
             .with_icon(icon),
         ..Default::default()
     };

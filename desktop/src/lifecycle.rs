@@ -175,7 +175,7 @@ impl Desktop {
         }
         ui.add_space(10.);
         if !self.local_service_controls {
-            ui.label("This window uses an explicitly supplied connection. Open the desktop with the collector's --data-dir to manage its local startup service.");
+            ui.label("This collector is managed by an existing monitoring service. Its startup is controlled outside this window.");
         }
         ui.strong(if cfg!(windows) {
             "Windows service — automatic startup"

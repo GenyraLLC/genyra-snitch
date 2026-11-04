@@ -21,6 +21,23 @@ to a local collector use `--connect http://127.0.0.1:PORT --token-file PATH`.
 Credentials are read locally and never placed in URLs. Personal connections
 and data are not included in the repository.
 
+### Linux app-menu installation
+
+With the collector binary beside the native desktop binary, run:
+
+```sh
+./genyra-snitch-desktop --install
+```
+
+This installs the native binaries for your user, the official Genyra icon and
+the **Genyra Snitch** desktop entry. It appears in desktop application menus,
+including Omarchy's Apps list. No browser or Python launcher is involved.
+For an existing local collector, supply `--connect`, `--token-file` and
+`--data-dir` with the installation command; those arguments are retained only
+in your local desktop entry. Capture permissions still apply to a newly
+started collector. Startup connection failures display an error window and
+save the last error privately in the chosen data directory.
+
 Settings now includes [optional background monitoring and startup services](BACKGROUND-SERVICE.md).
 The desktop reconnects to a shared collector using persistent local identity;
 an exclusive data-directory lock prevents duplicate collectors. Linux systemd
