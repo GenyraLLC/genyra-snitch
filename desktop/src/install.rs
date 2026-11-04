@@ -91,6 +91,22 @@ pub(super) fn desktop(args: &[String]) -> io::Result<()> {
     let desktop = bundle.join("genyra-snitch-desktop");
     executable_copy(&source, &desktop)?;
     executable_copy(&collector, &bundle.join("genyra-snitch"))?;
+    let notices = bundle.join("licenses");
+    fs::create_dir_all(&notices)?;
+    for (name, bytes) in [
+        ("LICENSE", include_bytes!("../../LICENSE").as_slice()),
+        ("NOTICE", include_bytes!("../../NOTICE").as_slice()),
+        (
+            "THIRD_PARTY_NOTICES.md",
+            include_bytes!("../../THIRD_PARTY_NOTICES.md").as_slice(),
+        ),
+        (
+            "OFL-Noto.txt",
+            include_bytes!("../assets/fonts/OFL-Noto.txt").as_slice(),
+        ),
+    ] {
+        fs::write(notices.join(name), bytes)?;
+    }
     // Keep menu shortcuts stable across versioned updates. Publish the link
     // only after both binaries are installed, without replacing a real folder.
     let current = bundle.parent().unwrap().join("current");

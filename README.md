@@ -29,6 +29,7 @@ Administrator-only tools still require administrator privileges. Missing permiss
 | --- | --- |
 | Native application | Rust 2021; separate collector and desktop executables. No Python, Node, Electron or browser runtime required for the native application. |
 | Desktop rendering | egui/eframe 0.33 with Glow/OpenGL; Wayland and X11 on Linux. Offline world map, connection graph and measured-traffic pulses. |
+| Appearance and languages | Hosting-style Genyra light/dark themes, tabbed navigation and a persistent overview/timeline. Eight languages for navigation and the main overview; some advanced descriptions and collector messages remain in English. |
 | Capture | libpcap on Linux/macOS; separately installed Npcap on Windows. IPv4, IPv6 and ARP filter; non-promiscuous capture; 4,096-byte snapshot length; requested 4 MiB capture buffer. Longer packets may be truncated in inspection/export. |
 | Collector scheduling | Tokio with two async runtime workers, plus dedicated capture and other task workers. This is not a two-thread limit for the whole process. |
 | Live state | Up to 4,096 remote graph nodes and 8,192 cached names; approximately 4 MiB of retained packet bytes, plus metadata. |

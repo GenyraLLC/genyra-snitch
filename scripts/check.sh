@@ -4,6 +4,9 @@ cd "$(dirname "$0")/.."
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
+cargo fmt --check --manifest-path desktop/Cargo.toml
+cargo clippy --locked --manifest-path desktop/Cargo.toml --all-targets -- -D warnings
+cargo test --locked --manifest-path desktop/Cargo.toml
 npm --prefix ui test
 npm --prefix ui run build
 node --check electron/main.js

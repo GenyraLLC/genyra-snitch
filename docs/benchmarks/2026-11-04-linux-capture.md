@@ -4,6 +4,14 @@ Two fresh collector processes captured the same real network interface concurren
 for **300 seconds**, after a **45-second warm-up**. No frontend was attached to
 either collector. The current Rust collector used less CPU and RSS in this run.
 
+![Completed five-minute collector CPU and RSS measurements](2026-11-04-linux-capture.png)
+
+[Vector chart](2026-11-04-linux-capture.svg). The chart is generated directly
+from the numeric CSV/JSON with `scripts/plot-resource-comparison.py`; it does
+not rerun or change the measurements. A new whole-application and visual-timing
+comparison is paused during the native UI revision. No preliminary application
+figures are substituted for a completed test of that revised interface.
+
 | Measurement | Original Python collector | Current Rust collector |
 | --- | ---: | ---: |
 | Average CPU, percent of one logical core | 104.36% | 1.83% |

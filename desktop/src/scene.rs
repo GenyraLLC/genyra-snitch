@@ -21,6 +21,7 @@ struct Body {
     color: Color32,
     bytes: u64,
     geo: Option<Vec2>,
+    kind: String,
 }
 #[derive(Clone)]
 struct Link {
@@ -151,18 +152,18 @@ impl Scene {
             };
             let h = hash(id);
             let unit = direction(h);
-            let app = node["processes"]
-                .as_object()
-                .and_then(|m| m.keys().next())
-                .map(String::as_str)
-                .unwrap_or("unattributed");
-            let anchor = direction(hash(app)) * 160.;
+            // Stable, two-dimensional initial placement keeps dense captures
+            // legible without continuously running a force simulation.
+            let anchor = Vec2::new(
+                (h % 10000) as f32 / 10000. * 1040. - 520.,
+                ((h >> 20) % 10000) as f32 / 10000. * 680. - 340.,
+            );
             let (position, velocity) = old
                 .get(id)
                 .map(|b| (b.position, b.velocity))
                 .unwrap_or_else(|| {
                     added = true;
-                    (anchor + unit * (80. + ((h >> 20) % 220) as f32), Vec2::ZERO)
+                    (anchor + unit * 24., Vec2::ZERO)
                 });
             let geo = node["lon"]
                 .as_f64()
@@ -178,6 +179,12 @@ impl Scene {
                 color: color(&node["color"]),
                 bytes: node["bytes"].as_u64().unwrap_or(0),
                 geo,
+                kind: node["device_type"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| node["category"].as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
             });
         }
         let ids: HashSet<_> = self.bodies.iter().map(|b| b.id.as_str()).collect();
@@ -252,12 +259,13 @@ impl Scene {
         let simulated = self.bodies.len().min(PHYSICS_NODES);
         let mut forces = vec![Vec2::ZERO; simulated];
         for (i, a) in self.bodies.iter().take(simulated).enumerate() {
-            forces[i] += (a.anchor - a.position) * 0.6 - a.position * 0.07;
-            // Distance from the local node varies with stable topology and
-            // traffic volume; destinations do not share a circular rail.
-            let radius = 110. + (hash(&a.id) % 240) as f32;
+            forces[i] += (a.anchor - a.position) * 0.18;
+            // Keep the central device clear without pulling every destination
+            // onto one circular rail.
             let distance = a.position.length().max(1.);
-            forces[i] -= a.position / distance * (distance - radius) * 0.22;
+            if distance < 90. {
+                forces[i] += a.position / distance * (90. - distance) * 0.4;
+            }
             for j in i + 1..simulated {
                 let delta = a.position - self.bodies[j].position;
                 let squared = delta.length_sq().max(100.);
@@ -291,6 +299,7 @@ impl Scene {
         filter: &str,
         animate: bool,
     ) -> Option<String> {
+        let theme = crate::appearance::palette(ui.ctx());
         let mut clicked = None;
         if self
             .fit_after
@@ -301,16 +310,24 @@ impl Scene {
         }
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(format!("{} destinations", self.total))
-                    .strong()
-                    .color(GOLD),
+                egui::RichText::new(format!(
+                    "{} {}",
+                    self.total,
+                    crate::i18n::tr("Destinations")
+                ))
+                .strong()
+                .color(theme.accent),
             );
             ui.separator();
-            ui.label(format!("{} active paths", self.active_edges));
+            ui.label(format!(
+                "{} {}",
+                self.active_edges,
+                crate::i18n::tr("Active paths")
+            ));
             ui.separator();
             ui.label(format!("{}/s", super::human_bytes(self.bytes_per_second)));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("Fit view").clicked() {
+                if ui.small_button(crate::i18n::tr("Fit view")).clicked() {
                     if map {
                         self.map_pan = Vec2::ZERO;
                         self.map_zoom = 1.;
@@ -339,23 +356,30 @@ impl Scene {
         if map {
             ui.label(
                 egui::RichText::new(format!(
-                    "{} located · {} without coordinates · {}",
+                    "{} {} · {} {} · {}",
                     self.geo_count,
+                    crate::i18n::tr("Located"),
                     self.total - self.geo_count,
+                    crate::i18n::tr("Without coordinates"),
                     self.origin
                         .as_ref()
-                        .map(|(name, _)| format!("Origin: timezone estimate ({name})"))
-                        .unwrap_or_else(|| {
-                            "Origin unavailable; destination locations remain visible".into()
-                        })
+                        .map(|(name, _)| format!(
+                            "{} ({name})",
+                            crate::i18n::tr("Timezone estimate")
+                        ))
+                        .unwrap_or_else(|| { crate::i18n::tr("Origin unavailable") })
                 ))
                 .small()
-                .color(Color32::from_gray(155)),
+                .color(theme.muted),
             );
         } else {
-            ui.label(egui::RichText::new(format!("Drag nodes to arrange · scroll to zoom · drag background to pan · showing {} of {}",self.bodies.len(),self.total)).small().color(Color32::from_gray(155)));
+            ui.label(
+                egui::RichText::new(crate::i18n::tr("Measured traffic"))
+                    .small()
+                    .color(theme.muted),
+            );
         }
-        let size = ui.available_size().max(Vec2::new(240., 240.));
+        let size = ui.available_size().max(Vec2::new(40., 40.));
         let (response, painter) = ui.allocate_painter(size, Sense::click_and_drag());
         let rect = response.rect.shrink(26.);
         if response.hovered() {
@@ -377,14 +401,22 @@ impl Scene {
                 .min(rect.height() / self.graph_bounds.height())
         };
         let scale = base * zoom;
+        let axes = if map {
+            Vec2::splat(scale)
+        } else {
+            Vec2::new(
+                rect.width() / self.graph_bounds.width(),
+                rect.height() / self.graph_bounds.height(),
+            ) * zoom
+        };
         let pan = if map { self.map_pan } else { self.pan };
         let center = rect.center() + pan
             - if map {
                 Vec2::ZERO
             } else {
-                self.graph_bounds.center().to_vec2() * scale
+                self.graph_bounds.center().to_vec2() * axes
             };
-        let screen = |v: Vec2| center + v * scale;
+        let screen = |v: Vec2| center + v * axes;
         if animate && !map {
             self.step();
         }
@@ -395,7 +427,7 @@ impl Scene {
                 for y in -10..=10 {
                     let p = screen(Vec2::new(x as f32 * 55., y as f32 * 55.));
                     if rect.contains(p) {
-                        painter.circle_filled(p, 0.8, Color32::from_gray(40));
+                        painter.circle_filled(p, 0.8, theme.line.gamma_multiply(0.45));
                     }
                 }
             }
@@ -449,8 +481,8 @@ impl Scene {
                 false,
                 Color32::TRANSPARENT,
                 Stroke::new(
-                    0.8_f32,
-                    link.color.gamma_multiply(if map { 0.32 } else { 0.18 }),
+                    (0.8 + (link.bytes as f32 + 1.).log10() * 0.14).clamp(1., 2.2),
+                    link.color.gamma_multiply(if map { 0.50 } else { 0.32 }),
                 ),
             ));
             if !map && self.hovered.as_deref() == Some(link.target.as_str()) {
@@ -490,6 +522,14 @@ impl Scene {
         let pointer = response.hover_pos();
         let mut nearest = None;
         let mut nearest_dist = 22.;
+        let fitted_radius = if map {
+            6.5
+        } else {
+            (rect.area() / visible.len().max(1) as f32)
+                .sqrt()
+                .mul_add(0.33, 0.)
+                .clamp(8., 24.)
+        };
         let mut label_bounds: Vec<egui::Rect> = vec![];
         if let Some(origin) = origin {
             label_bounds.push(egui::Rect::from_center_size(
@@ -509,13 +549,25 @@ impl Scene {
                 continue;
             }
             let radius = if map {
-                3.5
+                6.5
             } else {
-                (4. + (body.bytes as f32 + 1.).log10() * 0.7).clamp(5., 11.)
+                (fitted_radius + (body.bytes as f32 + 1.).log10() * 0.35).min(24.)
             };
-            painter.circle_filled(point, radius + 3., body.color.gamma_multiply(0.08));
-            painter.circle_filled(point, radius, Color32::from_rgb(25, 29, 37));
-            painter.circle_stroke(point, radius, Stroke::new(1.5_f32, body.color));
+            let node_colour = if ui.visuals().dark_mode {
+                body.color
+            } else {
+                Color32::from_rgb(
+                    (body.color.r() as f32 * 0.55) as u8,
+                    (body.color.g() as f32 * 0.55) as u8,
+                    (body.color.b() as f32 * 0.55) as u8,
+                )
+            };
+            painter.circle_filled(point, radius + 6., node_colour.gamma_multiply(0.09));
+            painter.circle_filled(point, radius, theme.panel);
+            painter.circle_stroke(point, radius, Stroke::new(1.7_f32, node_colour));
+            if !map {
+                paint_node_icon(&painter, point, &body.kind, node_colour, radius * 0.48);
+            }
             if let Some(pointer) = pointer {
                 let distance = point.distance(pointer);
                 if distance < nearest_dist {
@@ -523,11 +575,11 @@ impl Scene {
                     nearest = Some(index);
                 }
             }
-            if index < 20 || zoom > 1.6 {
+            if index < 32 || zoom > 1.3 {
                 let label: String = body.label.chars().take(27).collect();
-                let text_point = point + Vec2::new(radius + 5., 0.);
-                let bounds = egui::Rect::from_min_size(
-                    text_point - Vec2::new(0., 7.),
+                let text_point = point + Vec2::new(0., radius + 7.);
+                let bounds = egui::Rect::from_center_size(
+                    text_point + Vec2::new(0., 7.),
                     Vec2::new(label.chars().count() as f32 * 6.6, 15.),
                 )
                 .expand(3.);
@@ -537,10 +589,10 @@ impl Scene {
                 label_bounds.push(bounds);
                 painter.text(
                     text_point,
-                    egui::Align2::LEFT_CENTER,
+                    egui::Align2::CENTER_TOP,
                     label,
                     egui::FontId::proportional(12.),
-                    Color32::from_gray(185),
+                    theme.text,
                 );
             }
         }
@@ -558,23 +610,26 @@ impl Scene {
         }
         if let Some(origin) = origin {
             let center = screen(origin);
-            painter.circle_filled(
-                center,
-                if map { 7. } else { 28. },
-                Color32::from_rgb(40, 35, 25),
-            );
+            painter.circle_filled(center, if map { 9. } else { 35. }, theme.selected);
             painter.circle_stroke(
                 center,
-                if map { 7. } else { 28. },
-                Stroke::new(1.5_f32, GOLD),
+                if map { 9. } else { 35. },
+                Stroke::new(2_f32, theme.accent),
             );
             painter.text(
-                center + Vec2::new(0., if map { 18. } else { 0. }),
+                center + Vec2::new(0., if map { 21. } else { 49. }),
                 egui::Align2::CENTER_CENTER,
-                if map { "LOCAL · ESTIMATE" } else { "LOCAL" },
+                crate::i18n::tr(if map {
+                    "LOCAL · ESTIMATE"
+                } else {
+                    "This device"
+                }),
                 egui::FontId::proportional(if map { 9. } else { 11. }),
-                GOLD,
+                theme.accent,
             );
+            if !map {
+                paint_node_icon(&painter, center, "computer", theme.accent, 17.);
+            }
         }
         if response.drag_started() && !map {
             self.dragged = nearest.map(|i| self.bodies[i].id.clone());
@@ -583,7 +638,7 @@ impl Scene {
             let delta = ui.ctx().input(|i| i.pointer.delta());
             if let Some(id) = &self.dragged {
                 if let Some(body) = self.bodies.iter_mut().find(|b| &b.id == id) {
-                    body.position += delta / scale;
+                    body.position += delta / axes;
                     body.velocity = Vec2::ZERO;
                 }
             } else if map {
@@ -598,9 +653,9 @@ impl Scene {
         painter.text(
             response.rect.left_bottom() + Vec2::new(12., -12.),
             egui::Align2::LEFT_BOTTOM,
-            "Pulses show measured traffic since the previous update",
+            crate::i18n::tr("Measured traffic"),
             egui::FontId::proportional(10.),
-            Color32::from_gray(130),
+            theme.muted,
         );
         if animate && (animating || (!map && Instant::now() < self.settle_until)) {
             ui.ctx().request_repaint_after(Duration::from_millis(50));
@@ -611,6 +666,99 @@ impl Scene {
 fn curve_control(a: Pos2, b: Pos2, bend: f32) -> Pos2 {
     let d = b - a;
     a + d * 0.5 + Vec2::new(-d.y, d.x) * bend
+}
+pub(super) fn paint_node_icon(
+    painter: &egui::Painter,
+    center: Pos2,
+    kind: &str,
+    colour: Color32,
+    size: f32,
+) {
+    let stroke = Stroke::new(1.5_f32, colour);
+    let p = |x: f32, y: f32| center + Vec2::new(x, y) * size;
+    let line = |a: (f32, f32), b: (f32, f32)| {
+        painter.line_segment([p(a.0, a.1), p(b.0, b.1)], stroke);
+    };
+    match kind.to_ascii_lowercase().as_str() {
+        "phone" | "mobile" => {
+            painter.rect_stroke(
+                egui::Rect::from_min_max(p(-0.5, -0.9), p(0.5, 0.9)),
+                2,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            line((-0.14, 0.6), (0.14, 0.6));
+        }
+        "router" | "iot" | "lan_device" => {
+            painter.rect_stroke(
+                egui::Rect::from_min_max(p(-0.85, -0.05), p(0.85, 0.6)),
+                2,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            line((-0.55, -0.05), (-0.75, -0.8));
+            line((0.55, -0.05), (0.75, -0.8));
+            painter.circle_filled(p(0.5, 0.28), 1.3, colour);
+            line((-0.5, 0.28), (-0.15, 0.28));
+        }
+        "pc" | "computer" | "local" => {
+            painter.rect_stroke(
+                egui::Rect::from_min_max(p(-0.9, -0.7), p(0.9, 0.45)),
+                2,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+            line((0., 0.45), (0., 0.85));
+            line((-0.5, 0.85), (0.5, 0.85));
+        }
+        "https" | "tracking" | "admin" => {
+            let points = vec![
+                p(0., -0.95),
+                p(0.8, -0.6),
+                p(0.65, 0.45),
+                p(0., 0.95),
+                p(-0.65, 0.45),
+                p(-0.8, -0.6),
+                p(0., -0.95),
+            ];
+            painter.add(egui::Shape::line(points, stroke));
+            line((-0.35, 0.), (-0.05, 0.3));
+            line((-0.05, 0.3), (0.4, -0.3));
+        }
+        "cdn" | "server" => {
+            for y in [-0.7, 0., 0.7] {
+                painter.rect_stroke(
+                    egui::Rect::from_min_max(p(-0.85, y - 0.23), p(0.85, y + 0.23)),
+                    1,
+                    stroke,
+                    egui::StrokeKind::Inside,
+                );
+                painter.circle_filled(p(0.5, y), 1., colour);
+            }
+        }
+        "unknown" | "other" => {
+            painter.text(
+                center,
+                egui::Align2::CENTER_CENTER,
+                "?",
+                egui::FontId::proportional(size * 1.65),
+                colour,
+            );
+        }
+        _ => {
+            painter.circle_stroke(center, size * 0.88, stroke);
+            line((-0.88, 0.), (0.88, 0.));
+            painter.add(egui::Shape::line(
+                (0..=16)
+                    .map(|i| {
+                        let a = i as f32 / 16. * std::f32::consts::TAU;
+                        p(a.cos() * 0.4, a.sin() * 0.88)
+                    })
+                    .collect(),
+                stroke,
+            ));
+        }
+    }
 }
 fn quadratic(a: Pos2, c: Pos2, b: Pos2, t: f32) -> Pos2 {
     let d = 1. - t;
@@ -815,22 +963,24 @@ impl World {
         }
     }
     fn paint(&self, painter: &egui::Painter, center: Pos2, scale: f32) {
+        let theme = crate::appearance::palette(painter.ctx());
         let transform = |p: Pos2| center + p.to_vec2() * scale;
         for line in &self.graticules {
             painter.add(epaint::PathShape::line(
                 line.iter().copied().map(transform).collect(),
-                Stroke::new(0.6_f32, Color32::from_gray(31)),
+                Stroke::new(0.6_f32, theme.line.gamma_multiply(0.5)),
             ));
         }
         let mut mesh = self.mesh.clone();
         for v in &mut mesh.vertices {
             v.pos = transform(v.pos);
+            v.color = theme.land;
         }
         painter.add(mesh);
         for line in &self.borders {
             painter.add(epaint::PathShape::line(
                 line.iter().copied().map(transform).collect(),
-                Stroke::new(0.65_f32, Color32::from_rgb(66, 76, 86)),
+                Stroke::new(0.65_f32, theme.line),
             ));
         }
     }

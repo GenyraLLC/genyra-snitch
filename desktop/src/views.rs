@@ -1,6 +1,6 @@
 //! Native tables and action views. Expensive application aggregation happens
 //! once per collector snapshot, not once per painted animation frame.
-use super::{human_bytes, show_value, Desktop, Job, GOLD, MUTED};
+use super::{human_bytes, show_value, Desktop, Job};
 use eframe::egui::{self, Color32, RichText, Vec2};
 use serde_json::{json, Value};
 use std::{
@@ -76,7 +76,7 @@ fn device_table(ui: &mut egui::Ui, devices: &[&Value]) -> Option<Value> {
                                 if online {
                                     Color32::from_rgb(99, 193, 143)
                                 } else {
-                                    MUTED
+                                    crate::appearance::palette(ui.ctx()).muted
                                 },
                                 if online { "Online" } else { "Last seen" },
                             );
@@ -268,7 +268,7 @@ impl Desktop {
                 "{} applications · select a process to inspect it",
                 entries.len()
             ))
-            .color(MUTED),
+            .color(crate::appearance::palette(ui.ctx()).muted),
         );
         let mut job = None;
         let mut inspect = None;
@@ -332,7 +332,10 @@ impl Desktop {
                     });
                     row.col(|ui| {
                         if ui
-                            .add_enabled(!self.worker.busy, egui::Button::new("History"))
+                            .add_enabled(
+                                !self.worker.busy,
+                                egui::Button::new(crate::i18n::tr("History")),
+                            )
                             .clicked()
                         {
                             job = Some(Job::Write(
@@ -393,7 +396,7 @@ impl Desktop {
                 let severity = alert["severity"].as_str().unwrap_or("info");
                 let color = match severity {
                     "critical" => Color32::from_rgb(240, 114, 113),
-                    "warning" => GOLD,
+                    "warning" => crate::appearance::palette(ui.ctx()).accent,
                     _ => Color32::from_rgb(131, 166, 196),
                 };
                 ui.group(|ui| {
@@ -403,7 +406,7 @@ impl Desktop {
                         ui.label(
                             RichText::new(alert["timestamp"].as_str().unwrap_or(""))
                                 .small()
-                                .color(MUTED),
+                                .color(crate::appearance::palette(ui.ctx()).muted),
                         );
                     });
                     ui.label(alert["message"].as_str().unwrap_or(""));
@@ -411,7 +414,7 @@ impl Desktop {
                         if ui
                             .add_enabled(
                                 !self.worker.busy && !self.read_only,
-                                egui::Button::new("Explain"),
+                                egui::Button::new(crate::i18n::tr("Explain")),
                             )
                             .clicked()
                         {
@@ -423,7 +426,7 @@ impl Desktop {
                         if ui
                             .add_enabled(
                                 !self.worker.busy && !self.read_only,
-                                egui::Button::new("Mute this type"),
+                                egui::Button::new(crate::i18n::tr("Mute this type")),
                             )
                             .clicked()
                         {
@@ -434,7 +437,7 @@ impl Desktop {
                             if ui
                                 .add_enabled(
                                     !self.worker.busy && !self.read_only,
-                                    egui::Button::new("Mute this host"),
+                                    egui::Button::new(crate::i18n::tr("Mute this host")),
                                 )
                                 .clicked()
                             {
@@ -451,7 +454,7 @@ impl Desktop {
             if self.last_action_path == "/security/explain" {
                 if let Some(result) = self.values.get("last_action") {
                     ui.separator();
-                    ui.heading("Explanation");
+                    ui.heading(crate::i18n::tr("Explanation"));
                     show_value(ui, "explanation", result);
                 }
             }
@@ -460,7 +463,7 @@ impl Desktop {
     pub(super) fn native_timeline(&mut self, ui: &mut egui::Ui) {
         let mut minutes = self.views.minutes;
         ui.horizontal(|ui| {
-            ui.label("Period");
+            ui.label(crate::i18n::tr("Period"));
             egui::ComboBox::from_id_salt("timeline-range")
                 .selected_text(format!("{minutes} minutes"))
                 .show_ui(ui, |ui| {
@@ -483,7 +486,10 @@ impl Desktop {
             );
             return;
         }
-        ui.label(RichText::new("Transferred bytes per minute").color(MUTED));
+        ui.label(
+            RichText::new(crate::i18n::tr("Transferred bytes per minute"))
+                .color(crate::appearance::palette(ui.ctx()).muted),
+        );
         let (response, painter) =
             ui.allocate_painter(Vec2::new(ui.available_width(), 230.), egui::Sense::hover());
         let rect = response.rect.shrink(14.);
@@ -512,14 +518,18 @@ impl Desktop {
         }
         painter.add(egui::epaint::PathShape::line(
             points.clone(),
-            egui::Stroke::new(2_f32, GOLD),
+            egui::Stroke::new(2_f32, crate::appearance::palette(ui.ctx()).accent),
         ));
         if let Some(pointer) = response.hover_pos() {
             let index = (((pointer.x - rect.left()) / rect.width()).clamp(0., 1.)
                 * (rows.len() - 1) as f32)
                 .round() as usize;
             let row = &rows[index];
-            painter.circle_filled(points[index], 4., GOLD);
+            painter.circle_filled(
+                points[index],
+                4.,
+                crate::appearance::palette(ui.ctx()).accent,
+            );
             response.on_hover_text(format!(
                 "{}\n{} · {} packets",
                 row["minute"].as_str().unwrap_or(""),
@@ -571,10 +581,10 @@ impl Desktop {
                 }
             }
             super::edit_value(ui,"New rule",&mut self.rule);
-            if ui.add_enabled(!self.worker.busy,egui::Button::new("Add alert rule")).clicked(){self.worker.write("/alerts/rules",self.rule.clone());}
+            if ui.add_enabled(!self.worker.busy,egui::Button::new(crate::i18n::tr("Add alert rule"))).clicked(){self.worker.write("/alerts/rules",self.rule.clone());}
         });
         ui.separator();
-        ui.heading("Existing rules");
+        ui.heading(crate::i18n::tr("Existing rules"));
         let value = self.current();
         for rule in value["rules"].as_array().into_iter().flatten() {
             ui.group(|ui| {
@@ -599,7 +609,7 @@ impl Desktop {
                     if ui
                         .add_enabled(
                             !self.read_only && !self.worker.busy,
-                            egui::Button::new("Remove rule"),
+                            egui::Button::new(crate::i18n::tr("Remove rule")),
                         )
                         .clicked()
                     {

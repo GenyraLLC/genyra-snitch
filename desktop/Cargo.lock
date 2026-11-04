@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "genyra-snitch-desktop"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 dependencies = [
  "earcutr",
  "eframe",
@@ -911,6 +911,7 @@ dependencies = [
  "iana-time-zone",
  "image",
  "reqwest",
+ "serde",
  "serde_json",
  "sysinfo",
  "tempfile",

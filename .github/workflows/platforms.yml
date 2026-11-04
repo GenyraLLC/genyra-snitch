@@ -59,4 +59,8 @@ jobs:
             target/release/sqlite3.dll
             desktop/target/release/genyra-snitch-desktop
             desktop/target/release/genyra-snitch-desktop.exe
+            LICENSE
+            NOTICE
+            THIRD_PARTY_NOTICES.md
+            desktop/assets/fonts/OFL-Noto.txt
           if-no-files-found: error

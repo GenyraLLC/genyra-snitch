@@ -11,6 +11,36 @@ Minimized windows suspend their polling and stream. Traffic pulses are driven by
 measured byte increases; the renderer sleeps when the scene settles. Desktop
 feature parity is not yet complete.
 
+The native overview keeps the original Snitch's visual approach with Genyra's
+tabbed navigation, paper/charcoal themes and warm-gold palette. The live graph
+and world map sit beside a security assessment, captured traffic, observed
+devices, external hosts and recent packets; traffic history stays below the
+canvas. Alert cards show recent collector findings. The security score comes
+from the native audit heuristic, not a guarantee that a destination is safe.
+
+The header offers **light/dark mode** and **eight languages**: English, French,
+German, Spanish, Brazilian Portuguese, Russian, Japanese and Simplified Chinese.
+Display preferences persist locally in `appearance.json`, independently of
+background monitoring. Navigation and the main overview are localized; some
+advanced task descriptions and collector-provided messages remain in English.
+Protocol identifiers and captured names are preserved. The Genyra wordmark
+opens https://genyra.com when clicked.
+
+The default window is 1440 × 1040 logical pixels. Shorter windows use compact
+summary cards, and the overview scrolls when necessary. Layout checks cover
+960 × 640 through the default size, translated labels, aligned header controls
+and footer visibility with populated summaries. Sun/moon icons use native
+vector drawing rather than font glyphs. The Linux launcher uses normal editing;
+`--read-only` is an explicit optional preview flag.
+
+For visual checks, `--theme light|dark` and `--language CODE` override the saved
+display choice for that launch. `--performance-log NEW_FILE.csv` enables opt-in
+numeric update-callback and repaint-watchdog samples; it records no traffic or
+inputs, refuses to replace existing files and creates a private file on Unix.
+Callback cadence is not hardware-presented FPS. The application comparison was
+paused for this UI revision; the completed collector-only measurement remains
+in [the resource guide](PERFORMANCE.md).
+
 On Wayland, frame presentation does not wait for vblank. This prevents a
 reproduced NVIDIA EGL stall when the window moves to an inactive workspace,
 which previously blocked the UI thread and compositor ping replies. Traffic
@@ -77,7 +107,7 @@ execution and macOS process firewall enforcement. Unimplemented providers
 report their actual limitations. Linux eBPF/cgroups retain Linux-only status.
 
 Outstanding desktop work: full action workflows, editable array settings,
-exports, enrollment, peer exchange, accessibility/localization and visual/runtime
+exports, enrollment, peer exchange, accessibility, complete advanced-form translation and visual/runtime
 review. These gaps prevent any claim of one-for-one cross-platform parity.
 
 ## Resource verification

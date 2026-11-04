@@ -1,14 +1,17 @@
 //! Native desktop: one window, one bounded I/O worker, no browser runtime.
 //! A hidden/minimized window suspends polling; only the active view refreshes.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+mod appearance;
+mod dashboard;
 mod feed;
+mod i18n;
 mod install;
 mod lifecycle;
 mod performance;
 mod scene;
 mod views;
 mod workflows;
-use eframe::egui::{self, Color32, RichText, Vec2};
+use eframe::egui::{self, Color32, RichText};
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
@@ -20,8 +23,6 @@ use std::{
     },
     time::{Duration, Instant},
 };
-const GOLD: Color32 = Color32::from_rgb(219, 184, 101);
-const MUTED: Color32 = Color32::from_rgb(145, 153, 168);
 const MAX_REPLY: u64 = 16 * 1024 * 1024;
 const PANELS: &[(&str, &str)] = &[
     ("Network", "/graph"),
@@ -305,6 +306,8 @@ struct Desktop {
     service_registration_present: bool,
     stop: Arc<AtomicBool>,
     performance: Option<performance::Probe>,
+    appearance: appearance::Appearance,
+    overview: dashboard::Overview,
 }
 impl Desktop {
     fn new(
@@ -312,36 +315,29 @@ impl Desktop {
         connection: Connection,
         child: Option<OwnedCollector>,
     ) -> Self {
-        egui_extras::install_image_loaders(&cc.egui_ctx);
-        let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = Color32::from_rgb(15, 18, 24);
-        visuals.window_fill = Color32::from_rgb(22, 26, 34);
-        visuals.selection.bg_fill = Color32::from_rgb(77, 64, 38);
-        visuals.selection.stroke.color = GOLD;
-        cc.egui_ctx.set_visuals(visuals);
-        let mut style = (*cc.egui_ctx.style()).clone();
-        for (kind, size) in [
-            (egui::TextStyle::Heading, 24.),
-            (egui::TextStyle::Body, 16.),
-            (egui::TextStyle::Button, 15.),
-            (egui::TextStyle::Small, 12.),
-        ] {
-            style
-                .text_styles
-                .insert(kind, egui::FontId::proportional(size));
-        }
-        style.spacing.item_spacing = Vec2::new(10., 7.);
-        cc.egui_ctx.set_style(style);
+        Self::with_context(&cc.egui_ctx, connection, child)
+    }
+    fn with_context(
+        ctx: &egui::Context,
+        connection: Connection,
+        child: Option<OwnedCollector>,
+    ) -> Self {
+        egui_extras::install_image_loaders(ctx);
+        let appearance = appearance::Appearance::load(&data_dir());
+        appearance::install_fonts(ctx);
+        appearance.apply(ctx);
         let read_only = connection.read_only;
         let local_service_controls = child.is_some()
             || genyra_common::endpoint(&data_dir())
                 .is_ok_and(|endpoint| endpoint.url == connection.base);
         Self {
-            feed: feed::Feed::new(connection.clone(), cc.egui_ctx.clone()),
+            feed: feed::Feed::new(connection.clone(), ctx.clone()),
             live: feed::State::default(),
             feed_connected: false,
             performance: None,
-            worker: Worker::new(connection, cc.egui_ctx.clone()),
+            appearance,
+            overview: dashboard::Overview::default(),
+            worker: Worker::new(connection, ctx.clone()),
             scene: scene::Scene::default(),
             workflows: workflows::Workflows::default(),
             views: views::Views::default(),
@@ -394,12 +390,29 @@ impl Desktop {
         }
         if path == "/graph" {
             self.scene.ingest(&value);
+            self.overview.ingest(&value);
             self.views.update_graph(&value);
+        }
+        if path == "/security/audit" {
+            self.overview.audit_received = Instant::now();
         }
         self.values.insert(path, value);
     }
     fn read_job(&self) -> Job {
         match self.panel {
+            0 | 1 => {
+                let mut paths = vec![
+                    format!("/timeline?minutes={}", self.overview.minutes),
+                    "/capture/status".into(),
+                ];
+                if self.overview.audit_received.elapsed() >= Duration::from_secs(15) {
+                    paths.push("/security/audit".into());
+                }
+                if !self.feed_connected {
+                    paths.push("/graph".into());
+                }
+                Job::ReadMany(paths)
+            }
             5 => Job::Read(format!("/timeline?minutes={}", self.views.minutes)),
             10 => Job::ReadMany(vec!["/ingest/agents".into(), "/remote/fleet".into()]),
             11 => Job::ReadMany(vec![
@@ -434,11 +447,11 @@ impl Desktop {
             );
         }
         ui.horizontal(|ui| {
-            ui.label("New rule");choice(ui,"kind",&mut self.kind,&["ip","cidr","domain","port","process"]);
+            ui.label(crate::i18n::tr("New rule"));choice(ui,"kind",&mut self.kind,&["ip","cidr","domain","port","process"]);
             ui.text_edit_singleline(&mut self.target);
             choice(ui,"action",&mut self.action,&["block","throttle","sinkhole"]);
             if self.action == "throttle" {ui.add(egui::DragValue::new(&mut self.rate).range(1..=10000000).suffix(" kbit/s"));}
-            if ui.add_enabled(!self.worker.busy&&!self.target.trim().is_empty(),egui::Button::new("Add rule")).clicked() {
+            if ui.add_enabled(!self.worker.busy&&!self.target.trim().is_empty(),egui::Button::new(crate::i18n::tr("Add rule"))).clicked() {
                 self.worker.write("/firewall/rules",json!({"kind":self.kind,"value":self.target.trim(),"action":self.action,"rate":self.rate}));
             }
         });
@@ -479,7 +492,7 @@ impl Desktop {
                     ui.colored_label(Color32::LIGHT_RED, "Not enforced")
                         .on_hover_text(text(&rule["error"]));
                 }
-                if ui.small_button("Remove").clicked() {
+                if ui.small_button(crate::i18n::tr("Remove")).clicked() {
                     self.worker.send(Job::Write(
                         reqwest::Method::DELETE,
                         format!("/firewall/rules/{id}"),
@@ -490,11 +503,13 @@ impl Desktop {
         }
     }
     fn investigation(&mut self, ui: &mut egui::Ui) {
-        ui.label("Inspect a process you own. OS permissions apply to memory and instrumentation.");
+        ui.label(crate::i18n::tr(
+            "Inspect a process you own. OS permissions apply to memory and instrumentation.",
+        ));
         ui.horizontal(|ui| {
-            ui.label("Process ID");
+            ui.label(crate::i18n::tr("Process ID"));
             ui.add(egui::DragValue::new(&mut self.pid).range(1..=u32::MAX));
-            ui.label("Duration");
+            ui.label(crate::i18n::tr("Duration"));
             ui.add(
                 egui::DragValue::new(&mut self.seconds)
                     .range(1..=60)
@@ -661,9 +676,18 @@ impl eframe::App for Desktop {
         if !hidden
             && !self.paused
             && !self.worker.busy
-            && self.refresh.elapsed() >= Duration::from_secs(if self.panel < 3 { 1 } else { 2 })
+            && self.refresh.elapsed()
+                >= Duration::from_secs(if self.panel <= 1 {
+                    5
+                } else if self.panel == 2 {
+                    1
+                } else {
+                    2
+                })
         {
-            if self.last_capture_check.elapsed() >= Duration::from_secs(10) {
+            if self.panel <= 1 {
+                self.worker.send(self.read_job());
+            } else if self.last_capture_check.elapsed() >= Duration::from_secs(10) {
                 self.worker.send(Job::Read("/capture/status".into()));
                 self.last_capture_check = Instant::now();
             } else {
@@ -676,133 +700,25 @@ impl eframe::App for Desktop {
         // No continuously running animation or redraw loop. Visible views
         // wake at the chosen polling rate; worker replies wake immediately.
         if !hidden && !self.paused {
-            ctx.request_repaint_after(Duration::from_secs(if self.panel < 3 { 1 } else { 2 }));
+            ctx.request_repaint_after(Duration::from_secs(if self.panel <= 1 {
+                5
+            } else if self.panel == 2 {
+                1
+            } else {
+                2
+            }));
         }
-        egui::TopBottomPanel::top("header")
-            .exact_height(78.)
-            .show(ctx, |ui| {
-                ui.horizontal_centered(|ui| {
-                    ui.add(
-                        egui::Image::new(egui::include_image!(
-                            "../../ui/public/brand/genyra-light.png"
-                        ))
-                        .fit_to_exact_size(Vec2::new(188., 30.)),
-                    );
-                    ui.separator();
-                    ui.heading(RichText::new("Snitch").color(GOLD));
-                    if let Some(status) = self.values.get("/capture/status") {
-                        let capturing = status["capturing"] == true;
-                        ui.colored_label(
-                            if capturing {
-                                Color32::from_rgb(99, 193, 143)
-                            } else {
-                                MUTED
-                            },
-                            if capturing {
-                                "Capturing"
-                            } else {
-                                "Capture stopped"
-                            },
-                        );
-                        ui.label(
-                            RichText::new(status["interface"].as_str().unwrap_or(""))
-                                .small()
-                                .color(MUTED),
-                        );
-                        if !self.read_only
-                            && ui
-                                .add_enabled(
-                                    !self.worker.busy,
-                                    egui::Button::new(if capturing {
-                                        "Stop capture"
-                                    } else {
-                                        "Start capture"
-                                    }),
-                                )
-                                .clicked()
-                        {
-                            self.worker.write(
-                                if capturing {
-                                    "/capture/stop"
-                                } else {
-                                    "/capture/start"
-                                },
-                                json!({}),
-                            );
-                            self.last_capture_check = Instant::now() - Duration::from_secs(15);
-                        }
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.checkbox(&mut self.paused, "Pause live view");
-                        ui.label(
-                            RichText::new(if self.read_only {
-                                "READ-ONLY PREVIEW"
-                            } else {
-                                "NATIVE RUST · PREVIEW"
-                            })
-                            .small()
-                            .color(MUTED),
-                        );
-                    });
-                });
-            });
-        egui::SidePanel::left("navigation")
-            .exact_width(185.)
-            .resizable(false)
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical()
-                    .id_salt("navigation-scroll")
-                    .show(ui, |ui| {
-                        ui.add_space(12.);
-                        for (index, (name, _)) in PANELS.iter().enumerate() {
-                            if [0, 4, 10].contains(&index) {
-                                ui.add_space(12.);
-                                ui.label(
-                                    RichText::new(match index {
-                                        0 => "VISIBILITY",
-                                        4 => "SECURITY",
-                                        _ => "WORKSPACE",
-                                    })
-                                    .size(10.)
-                                    .color(MUTED),
-                                );
-                                ui.add_space(5.);
-                            }
-                            if ui
-                                .add_sized(
-                                    [162., 29.],
-                                    egui::Button::new(*name)
-                                        .selected(self.panel == index)
-                                        .frame(self.panel == index),
-                                )
-                                .clicked()
-                            {
-                                self.panel = index;
-                                if index < 3 && self.feed_connected {
-                                    self.accept_data("/graph".into(), self.live.graph());
-                                }
-                                self.filter.clear();
-                                self.refresh = Instant::now() - Duration::from_secs(10);
-                            }
-                        }
-                        ui.add_space(18.);
-                        ui.label(
-                            RichText::new("Genyra LLC\nLocal traffic stays local")
-                                .small()
-                                .color(MUTED),
-                        );
-                    });
-            });
+        self.overview_shell(ctx);
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if self.worker.busy {
-                    ui.label("Working…");
+                    ui.label(crate::i18n::tr("Working…"));
                 }
                 ui.colored_label(
                     if self.failure {
                         Color32::LIGHT_RED
                     } else {
-                        MUTED
+                        appearance::palette(ctx).muted
                     },
                     &self.message,
                 );
@@ -813,15 +729,18 @@ impl eframe::App for Desktop {
                 .exact_width(300.)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        ui.heading("Destination");
-                        if ui.small_button("Close").clicked() {
+                        ui.heading(crate::i18n::tr("Destination"));
+                        if ui.small_button(crate::i18n::tr("Close")).clicked() {
                             self.selected = None;
                         }
                     });
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         show_value(ui, "destination", &node);
                         if ui
-                            .add_enabled(!self.worker.busy, egui::Button::new("Block this IP"))
+                            .add_enabled(
+                                !self.worker.busy && !self.read_only,
+                                egui::Button::new(crate::i18n::tr("Block this IP")),
+                            )
                             .clicked()
                         {
                             self.worker.write(
@@ -833,18 +752,20 @@ impl eframe::App for Desktop {
                 });
         }
         egui::CentralPanel::default().show(ctx, |ui| {
+            if self.panel > 1 {
             ui.horizontal(|ui| {
-                ui.heading(PANELS[self.panel].0);
+                ui.heading(i18n::tr(PANELS[self.panel].0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.filter).hint_text("Filter this view"),
+                        egui::TextEdit::singleline(&mut self.filter).hint_text(crate::i18n::tr("Filter this view")),
                     );
                 });
             });
             ui.separator();
+            }
             match self.panel {
-                0 => self.graph(ui, false),
-                1 => self.graph(ui, true),
+                0 => self.overview_canvas(ui, false),
+                1 => self.overview_canvas(ui, true),
                 2 => self.connections(ui),
                 3 => self.native_devices(ui),
                 4 => self.native_alerts(ui),
@@ -868,7 +789,7 @@ impl eframe::App for Desktop {
                         if ui
                             .add_enabled(
                                 self.settings_dirty && !self.worker.busy && !self.read_only,
-                                egui::Button::new("Save settings"),
+                                egui::Button::new(crate::i18n::tr("Save settings")),
                             )
                             .clicked()
                         {
@@ -895,7 +816,7 @@ impl eframe::App for Desktop {
                     egui::ScrollArea::vertical().show(ui, |ui| self.native_exports(ui));
                 }
                 15 => {
-                    ui.label("Recent packet metadata from the live collector. This view keeps the latest 128 samples.");
+                    ui.label(crate::i18n::tr("Recent packet metadata from the live collector. This view keeps the latest 128 samples."));
                     egui::ScrollArea::vertical().show(ui,|ui|{
                         for packet in self.live.packets.iter().rev() {
                             let line=format!("{}  {}:{} → {}:{}  {}  {} B",packet["process_name"].as_str().unwrap_or("Unattributed"),text(&packet["src_ip"]),text(&packet["src_port"]),text(&packet["dst_ip"]),text(&packet["dst_port"]),text(&packet["protocol"]),text(&packet["size"]));
@@ -935,7 +856,11 @@ fn text(v: &Value) -> String {
         .unwrap_or_else(|| v.to_string())
 }
 fn human_bytes(n: u64) -> String {
-    if n >= 1024 * 1024 {
+    if n >= 1024 * 1024 * 1024 * 1024 {
+        format!("{:.1} TiB", n as f64 / 1099511627776.)
+    } else if n >= 1024 * 1024 * 1024 {
+        format!("{:.1} GiB", n as f64 / 1073741824.)
+    } else if n >= 1024 * 1024 {
         format!("{:.1} MiB", n as f64 / 1048576.)
     } else if n >= 1024 {
         format!("{:.1} KiB", n as f64 / 1024.)
@@ -998,7 +923,10 @@ fn show_value(ui: &mut egui::Ui, label: &str, value: &Value) {
                         .show(ui, |ui| show_value(ui, key, value));
                 } else {
                     ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(title(key)).color(MUTED));
+                        ui.label(
+                            RichText::new(title(key))
+                                .color(crate::appearance::palette(ui.ctx()).muted),
+                        );
                         ui.label(text(value));
                     });
                 }
@@ -1022,7 +950,7 @@ fn show_value(ui: &mut egui::Ui, label: &str, value: &Value) {
             }
         }
         Value::Null => {
-            ui.label("Waiting for collector…");
+            ui.label(crate::i18n::tr("Waiting for collector…"));
         }
         _ => {
             ui.label(text(value));
@@ -1051,7 +979,7 @@ fn edit_value(ui: &mut egui::Ui, label: &str, value: &mut Value) -> bool {
             for (i, value) in items.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
                     changed |= edit_value(ui, &i.to_string(), value);
-                    if ui.small_button("Remove").clicked() {
+                    if ui.small_button(crate::i18n::tr("Remove")).clicked() {
                         remove = Some(i);
                     }
                 });
@@ -1062,7 +990,10 @@ fn edit_value(ui: &mut egui::Ui, label: &str, value: &mut Value) -> bool {
             }
             let limit = if label == "args" { 8 } else { 1024 };
             if ui
-                .add_enabled(items.len() < limit, egui::Button::new("Add entry"))
+                .add_enabled(
+                    items.len() < limit,
+                    egui::Button::new(crate::i18n::tr("Add entry")),
+                )
                 .clicked()
             {
                 items.push(match label {
@@ -1134,7 +1065,7 @@ fn edit_value(ui: &mut egui::Ui, label: &str, value: &mut Value) -> bool {
             }
         }
         Value::Null => {
-            ui.label("Not configured");
+            ui.label(crate::i18n::tr("Not configured"));
         }
     });
     changed
@@ -1227,7 +1158,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         // pace active traffic at 20 Hz; never wait for vblank on Wayland.
         vsync: desktop_vsync(render_check),
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1320., 850.])
+            .with_inner_size([1440., 1040.])
             .with_min_inner_size([960., 640.])
             .with_visible(!render_check)
             .with_app_id("com.genyra.snitch")
@@ -1248,6 +1179,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             if args.iter().any(|a| a == "--background") {
                 app.keep_monitoring = true;
             }
+            if let Some(theme) = args
+                .windows(2)
+                .find(|a| a[0] == "--theme")
+                .map(|a| a[1].as_str())
+            {
+                app.appearance.dark = theme == "dark";
+            }
+            if let Some(language) = args
+                .windows(2)
+                .find(|a| a[0] == "--language")
+                .map(|a| a[1].clone())
+            {
+                app.appearance.language = language;
+            }
+            app.appearance.apply(&cc.egui_ctx);
             app.panel = initial_panel;
             app.capture_path = capture;
             app.quit_after_capture = render_check;

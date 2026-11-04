@@ -139,8 +139,8 @@ pub(super) fn service_action(action: &str) -> Result<String, String> {
 }
 impl Desktop {
     pub(super) fn background_service(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Background monitoring");
-        ui.label("Keep capture, configured rules and alerts running while the desktop is closed. The next window reconnects to the same collector.");
+        ui.heading(crate::i18n::tr("Background monitoring"));
+        ui.label(crate::i18n::tr("Keep capture, configured rules and alerts running while the desktop is closed. The next window reconnects to the same collector."));
         ui.add_enabled_ui(!self.read_only && self.local_service_controls, |ui| {
             if ui
                 .checkbox(
@@ -164,7 +164,7 @@ impl Desktop {
                 RichText::new(
                     "Attached to an independent collector. Closing this window leaves it running.",
                 )
-                .color(GOLD),
+                .color(crate::appearance::palette(ui.ctx()).accent),
             );
         } else {
             ui.label(if self.keep_monitoring {
@@ -175,7 +175,7 @@ impl Desktop {
         }
         ui.add_space(10.);
         if !self.local_service_controls {
-            ui.label("This collector is managed by an existing monitoring service. Its startup is controlled outside this window.");
+            ui.label(crate::i18n::tr("This collector is managed by an existing monitoring service. Its startup is controlled outside this window."));
         }
         ui.strong(if cfg!(windows) {
             "Windows service — automatic startup"

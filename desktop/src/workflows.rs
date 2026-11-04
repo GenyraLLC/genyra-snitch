@@ -144,7 +144,7 @@ impl Desktop {
             }
         });
         if task.path == "/security/iocpack/import" {
-            ui.label("Indicator pack (JSON)");
+            ui.label(crate::i18n::tr("Indicator pack (JSON)"));
             ui.add(
                 egui::TextEdit::multiline(&mut self.workflows.json_input)
                     .desired_rows(12)
@@ -227,14 +227,16 @@ impl Desktop {
         }
         if let Some(value) = self.values.get("last_action") {
             ui.separator();
-            ui.heading("Result");
+            ui.heading(crate::i18n::tr("Result"));
             show_value(ui, "task-result", value);
         }
     }
     pub(super) fn native_exports(&mut self, ui: &mut egui::Ui) {
-        ui.label("Save an investigation report or the recent packet buffer to your computer.");
+        ui.label(crate::i18n::tr(
+            "Save an investigation report or the recent packet buffer to your computer.",
+        ));
         ui.horizontal(|ui| {
-            ui.label("Format");
+            ui.label(crate::i18n::tr("Format"));
             super::choice(
                 ui,
                 "export-format",
@@ -245,13 +247,13 @@ impl Desktop {
             );
         });
         ui.horizontal(|ui| {
-            ui.label("Directory");
+            ui.label(crate::i18n::tr("Directory"));
             ui.text_edit_singleline(&mut self.workflows.export_path);
         });
         if ui
             .add_enabled(
                 !self.worker.busy && !self.workflows.export_path.is_empty(),
-                egui::Button::new("Save export"),
+                egui::Button::new(crate::i18n::tr("Save export")),
             )
             .clicked()
         {
@@ -280,7 +282,9 @@ impl Desktop {
         }
     }
     pub(super) fn native_agents(&mut self, ui: &mut egui::Ui) {
-        ui.label("Enroll a sensor to send observations to this collector.");
+        ui.label(crate::i18n::tr(
+            "Enroll a sensor to send observations to this collector.",
+        ));
         ui.horizontal(|ui| {
             ui.text_edit_singleline(&mut self.workflows.agent_name);
             if ui
@@ -288,7 +292,7 @@ impl Desktop {
                     !self.read_only
                         && !self.worker.busy
                         && !self.workflows.agent_name.trim().is_empty(),
-                    egui::Button::new("Enroll sensor"),
+                    egui::Button::new(crate::i18n::tr("Enroll sensor")),
                 )
                 .clicked()
             {
@@ -301,10 +305,10 @@ impl Desktop {
         if let Some(value) = self.values.get("last_action").cloned() {
             if let Some(token) = value["token"].as_str() {
                 ui.group(|ui| {
-                    ui.label("New sensor token — keep it private");
+                    ui.label(crate::i18n::tr("New sensor token — keep it private"));
                     let mut display = token.to_string();
                     ui.add(egui::TextEdit::singleline(&mut display).password(true));
-                    if ui.button("Copy token").clicked() {
+                    if ui.button(crate::i18n::tr("Copy token")).clicked() {
                         ui.ctx().copy_text(token.into());
                     }
                 });
@@ -321,7 +325,7 @@ impl Desktop {
                 if ui
                     .add_enabled(
                         !self.read_only && !self.worker.busy,
-                        egui::Button::new("Revoke sensor"),
+                        egui::Button::new(crate::i18n::tr("Revoke sensor")),
                     )
                     .clicked()
                 {
@@ -331,7 +335,7 @@ impl Desktop {
         }
         if let Some(fleet) = self.values.get("/remote/fleet") {
             ui.separator();
-            ui.heading("Fleet");
+            ui.heading(crate::i18n::tr("Fleet"));
             show_value(ui, "fleet", fleet);
         }
     }
