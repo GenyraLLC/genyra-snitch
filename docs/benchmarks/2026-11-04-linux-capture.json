@@ -1,0 +1,75 @@
+{
+  "measured_at_utc": "2026-11-04T08:09:34Z",
+  "duration_seconds": 300.0000933179981,
+  "warmup_seconds": 45,
+  "sampling_interval_seconds": 1,
+  "cpu_model": "Intel(R) Core(TM) i9-14900K",
+  "logical_cpus": 32,
+  "kernel": "7.2.8-9-omarchy",
+  "rust_source_commit": "c120556eaacbe66b5f618ad46299f0a7172a66d1",
+  "python_source_commit": "062f2a8c3ba95ac811988710579874100d667956",
+  "rust_binary_sha256": "3c3ff5d131c2887ee470f12f58a1790efc1d4fada73eb877e8c81df6939c9ae1",
+  "collectors": {
+    "python": {
+      "cpu_one_core_percent": 104.35663420549268,
+      "rss_start_mib": 108.2109375,
+      "rss_end_mib": 111.328125,
+      "rss_mean_mib": 109.93501302083334,
+      "rss_peak_mib": 111.328125,
+      "capture_counter_delta": {
+        "frames": 88230,
+        "delivered": 87626,
+        "parse_failed": 0,
+        "not_for_us": 604,
+        "queue_queue_oldest_dropped": 0,
+        "queue_queue_put_failed": 0,
+        "queue_excluded_process": 0,
+        "queue_whitelisted_ip": 0,
+        "queue_noise_filtered": 18
+      }
+    },
+    "rust": {
+      "cpu_one_core_percent": 1.8333327630568557,
+      "rss_start_mib": 43.79296875,
+      "rss_end_mib": 45.515625,
+      "rss_mean_mib": 44.89048177083333,
+      "rss_peak_mib": 47.515625,
+      "capture_counter_delta": {
+        "alert_overflow": 0,
+        "captured": 93591,
+        "filtered": 0,
+        "graph_evictions": 0,
+        "history_overflow": 0,
+        "noise_filtered": 18,
+        "nonlocal": 599,
+        "notification_dropped": 0,
+        "notification_failures": 0,
+        "pcap_dropped": 0,
+        "pcap_if_dropped": 0,
+        "processed": 87652,
+        "unattributed": 3928,
+        "unparsed": 6
+      }
+    }
+  },
+  "python_version": "3.12.15",
+  "rust_toolchain": "1.99.1",
+  "python_application_version": "1.6.4",
+  "rust_collector_version": "0.1.0-alpha.2",
+  "geoip_files": {
+    "dbip-city-lite.mmdb": 126998165,
+    "dbip-asn-lite.mmdb": 9566363
+  },
+  "geoip_file_size_unit": "bytes",
+  "conditions": [
+    "Concurrent real traffic on the same physical interface; fresh, separate SQLite databases.",
+    "Identical local City and ASN database contents; no frontend subscribers attached to either measured collector.",
+    "No deliberate traffic generation; existing host applications and the installed monitor continued running.",
+    "Both collectors ran as the same normal user with CAP_NET_RAW only. eBPF was disabled in both fresh configurations.",
+    "Default background checks remained enabled; no on-demand Frida/deep inspections, model requests or firewall policy were configured.",
+    "Capture defaults differ: Rust uses non-promiscuous mode, a 4096-byte snapshot and an ip-or-ip6-or-arp filter; Python uses promiscuous mode, a 65535-byte snapshot and an ip-or-ip6 filter.",
+    "CPU includes all threads in each collector process; 100% means one logical core. RSS includes resident file mappings.",
+    "Original Python exposes parser and queue drop counts, but not libpcap kernel drop counters.",
+    "This is one five-minute workload, not a feature-parity, full-desktop, long-term stability or maximum-throughput benchmark."
+  ]
+}

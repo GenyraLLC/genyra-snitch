@@ -1,6 +1,35 @@
 # Understanding resource usage
 
-## The measured capture sample
+## Current five-minute capture sample — 4 November 2026
+
+Fresh Python and current Rust collector processes captured the same real
+interface concurrently for **300 seconds after a 45-second warm-up**. Neither
+had a frontend attached.
+
+| Measurement | Python collector | Current Rust collector |
+| --- | ---: | ---: |
+| Average CPU, one logical core = 100% | 104.36% | 1.83% |
+| Mean RSS | 109.94 MiB | 44.89 MiB |
+| RSS at measurement end | 111.33 MiB | 45.52 MiB |
+| Highest sampled RSS | 111.33 MiB | 47.52 MiB |
+| Delivered / processed packets | 87,626 | 87,652 |
+
+This run measured **98.24% lower CPU** and **59.17% lower mean RSS** for Rust.
+Both RSS measurements grew during the window; five minutes does not establish
+long-term stability. Rust reported zero libpcap kernel/interface drops. Python
+reported zero packet-queue drops, but its API does not expose kernel drops.
+
+The capture defaults differ: Rust is non-promiscuous with a 4,096-byte snapshot
+and IPv4/IPv6/ARP filter; Python is promiscuous with a 65,535-byte snapshot and
+IPv4/IPv6 filter. The result measures those implementations in one workload,
+not identical capture policies or complete feature parity. It excludes desktop
+rendering and does not describe older installed builds.
+
+See the [full report, build identities and method](benchmarks/2026-11-04-linux-capture.md)
+and [aggregate JSON](benchmarks/2026-11-04-linux-capture.json). The earlier sample
+below is retained because its higher native-memory result is also part of the evidence.
+
+## Historical 20-second sample
 
 A paired Linux x86-64 run observed the same active network interface with the original Python collector and the native implementation. After 15 seconds of startup settling, CPU time was sampled from `/proc/<pid>/stat` over **20 seconds**. RSS was sampled from `/proc/<pid>/statm`. Percentages use **one CPU core as 100%**, not the whole machine.
 

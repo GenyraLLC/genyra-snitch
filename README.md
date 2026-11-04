@@ -63,11 +63,19 @@ This opens the native desktop with synthetic connections. Demo mode never captur
 
 For live capture, run the binary with the required privileges; see [live capture and desktop usage](docs/BUILD.md). To migrate an existing installation, stop the old collector, back up its data and token, then point `SNITCH_DATA_DIR` at that directory. Never run two collectors against the same database.
 
-### Resource usage, without the marketing shortcuts
+### Measured resource use
 
-In one **20-second Linux capture comparison**, the native collector used **2.4% of one CPU core**, compared with **15.3%** for the Python backend. Native RSS was **168.82 MiB**, compared with **144.93 MiB** for Python: **this sample demonstrated lower CPU use, not lower memory use**. Both collectors observed the same interface; the native collector captured 16,057 packets during the window and reported zero capture drops.
+On **4 November 2026**, fresh Python and current Rust collectors captured the same real interface concurrently for **five minutes**, after a 45-second warm-up, with no frontend attached:
 
-Those numbers are a sample, not a universal benchmark. Traffic, process count, GeoIP data, inspection jobs and optional models change the result. [The resource guide](docs/PERFORMANCE.md) explains what was measured, bounded buffers, RSS versus file cache, and the additional cost of local inference.
+| Measurement | Python collector | Current Rust collector |
+| --- | ---: | ---: |
+| Average CPU, one logical core = 100% | 104.36% | 1.83% |
+| Mean RSS | 109.94 MiB | 44.89 MiB |
+| RSS at measurement end | 111.33 MiB | 45.52 MiB |
+
+This workload measured **98.24% lower CPU** and **59.17% lower mean RSS** for Rust. It excludes the desktop and optional models. Capture defaults differ: Rust uses a 4,096-byte snapshot without promiscuous mode; Python uses 65,535 bytes with promiscuous mode. This is a workload-specific implementation comparison, not proof of identical capture policies, complete parity or multi-hour stability. Rust reported zero libpcap drops; Python's API does not expose kernel drops.
+
+The [dated report and aggregate data](docs/benchmarks/2026-11-04-linux-capture.md) identify builds, hardware, packet counts and methodology. The [resource guide](docs/PERFORMANCE.md) also retains the earlier 20-second sample, which showed lower native CPU but higher RSS. Traffic, state, GeoIP, inspection and optional models change resource use; the new result does not describe older installed builds.
 
 ### Privacy and provenance
 
