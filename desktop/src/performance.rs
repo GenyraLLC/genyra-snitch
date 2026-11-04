@@ -9,7 +9,7 @@ use std::{
         mpsc, Arc,
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 pub(super) struct Probe {
@@ -33,7 +33,7 @@ impl Probe {
         let mut output = BufWriter::new(options.open(path)?);
         writeln!(
             output,
-            "elapsed_s,frame_interval_ms,previous_frame_cpu_ms,repaint_latency_ms"
+            "unix_s,elapsed_s,frame_interval_ms,previous_frame_cpu_ms,repaint_latency_ms"
         )?;
         let (send, pings) = mpsc::sync_channel(1);
         let stop = Arc::new(AtomicBool::new(false));
@@ -76,7 +76,11 @@ impl Probe {
         // Buffered, bounded memory: one numeric row per actual egui update.
         let _ = writeln!(
             self.output,
-            "{:.6},{:.6},{},{}",
+            "{:.6},{:.6},{:.6},{},{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs_f64(),
             now.duration_since(self.started).as_secs_f64(),
             now.duration_since(self.previous).as_secs_f64() * 1000.,
             cpu,
