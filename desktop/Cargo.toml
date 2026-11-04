@@ -1,6 +1,6 @@
 [package]
 name = "genyra-snitch-desktop"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 edition = "2021"
 license = "AGPL-3.0-only"
 description = "Native Rust desktop for Genyra Snitch"

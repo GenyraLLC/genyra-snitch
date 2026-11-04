@@ -28,6 +28,7 @@ pub(super) fn startup_error(message: String) -> Result<(), Box<dyn std::error::E
         }
     }
     let options = eframe::NativeOptions {
+        vsync: super::desktop_vsync(false),
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([650., 320.])
             .with_app_id("com.genyra.snitch"),
@@ -90,13 +91,27 @@ pub(super) fn desktop(args: &[String]) -> io::Result<()> {
     let desktop = bundle.join("genyra-snitch-desktop");
     executable_copy(&source, &desktop)?;
     executable_copy(&collector, &bundle.join("genyra-snitch"))?;
+    // Keep menu shortcuts stable across versioned updates. Publish the link
+    // only after both binaries are installed, without replacing a real folder.
+    let current = bundle.parent().unwrap().join("current");
+    if fs::symlink_metadata(&current).is_ok_and(|m| !m.file_type().is_symlink()) {
+        return Err(io::Error::other(
+            "The application current path is not a symbolic link",
+        ));
+    }
+    let staging = tempfile::tempdir_in(bundle.parent().unwrap())?;
+    let staged_link = staging.path().join("current");
+    std::os::unix::fs::symlink(&bundle, &staged_link)?;
+    fs::rename(staged_link, &current)?;
     let icons = data.join("icons/hicolor/256x256/apps");
     fs::create_dir_all(&icons)?;
     fs::write(
         icons.join("genyra-snitch.png"),
         include_bytes!("../../ui/public/brand/genyra-icon.png"),
     )?;
-    let mut launch = vec![desktop_argument(&desktop.to_string_lossy())?];
+    let mut launch = vec![desktop_argument(
+        &current.join("genyra-snitch-desktop").to_string_lossy(),
+    )?];
     for name in ["--connect", "--token-file", "--data-dir"] {
         if let Some(pair) = args.windows(2).find(|pair| pair[0] == name) {
             launch.push(desktop_argument(name)?);

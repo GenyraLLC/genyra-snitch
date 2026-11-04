@@ -11,6 +11,20 @@ Minimized windows suspend their polling and stream. Traffic pulses are driven by
 measured byte increases; the renderer sleeps when the scene settles. Desktop
 feature parity is not yet complete.
 
+On Wayland, frame presentation does not wait for vblank. This prevents a
+reproduced NVIDIA EGL stall when the window moves to an inactive workspace,
+which previously blocked the UI thread and compositor ping replies. Traffic
+animations remain paced by the application's repaint requests.
+
+The opt-in `wayland_occlusion` test requires an active Lua Hyprland session.
+It moves only its own synthetic test window off-screen for eight seconds,
+then verifies a normal Wayland close request still works and its owned
+collector flushes and stops:
+
+```sh
+cargo test --manifest-path desktop/Cargo.toml --test wayland_occlusion -- --ignored
+```
+
 ```sh
 cargo build --release --locked --manifest-path desktop/Cargo.toml
 ```

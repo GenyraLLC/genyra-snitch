@@ -1214,9 +1214,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let icon =
         eframe::icon_data::from_png_bytes(include_bytes!("../../ui/public/brand/genyra-icon.png"))?;
     let options = eframe::NativeOptions {
-        // Hidden renderer checks have no compositor frame callbacks. Waiting
-        // for vblank there can stall NVIDIA's Wayland EGL swap indefinitely.
-        vsync: !render_check,
+        // Wayland may withhold frame callbacks while a workspace is hidden.
+        // NVIDIA EGL can then wait inside SwapBuffers on the UI thread,
+        // preventing xdg_wm_base ping replies. Our repaint requests already
+        // pace active traffic at 20 Hz; never wait for vblank on Wayland.
+        vsync: desktop_vsync(render_check),
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1320., 850.])
             .with_min_inner_size([960., 640.])
@@ -1246,6 +1248,10 @@ fn main() {
         eprintln!("Genyra Snitch: {error}");
         std::process::exit(1);
     }
+}
+
+fn desktop_vsync(render_check: bool) -> bool {
+    !render_check && !(cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some())
 }
 
 #[cfg(test)]
