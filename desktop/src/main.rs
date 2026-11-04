@@ -4,6 +4,7 @@
 mod feed;
 mod install;
 mod lifecycle;
+mod performance;
 mod scene;
 mod views;
 mod workflows;
@@ -303,6 +304,7 @@ struct Desktop {
     local_service_controls: bool,
     service_registration_present: bool,
     stop: Arc<AtomicBool>,
+    performance: Option<performance::Probe>,
 }
 impl Desktop {
     fn new(
@@ -338,6 +340,7 @@ impl Desktop {
             feed: feed::Feed::new(connection.clone(), cc.egui_ctx.clone()),
             live: feed::State::default(),
             feed_connected: false,
+            performance: None,
             worker: Worker::new(connection, cc.egui_ctx.clone()),
             scene: scene::Scene::default(),
             workflows: workflows::Workflows::default(),
@@ -523,7 +526,10 @@ impl Desktop {
 }
 
 impl eframe::App for Desktop {
-    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if let Some(probe) = &mut self.performance {
+            probe.frame(frame.info().cpu_usage);
+        }
         while let Ok(value) = self.feed.messages.try_recv() {
             let kind = value["type"].as_str().unwrap_or("");
             if kind == "feed_error" {
@@ -1201,6 +1207,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|| arg("--screenshot"))
         .map(PathBuf::from);
     let render_check = arg("--render-check").is_some();
+    let performance_log = arg("--performance-log");
     let initial_panel = match arg("--view").as_deref() {
         Some("map") => 1,
         Some("apps") => 2,
@@ -1232,6 +1239,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         options,
         Box::new(move |cc| {
             let mut app = Desktop::new(cc, connection, child);
+            if let Some(path) = performance_log {
+                app.performance = Some(performance::Probe::new(
+                    std::path::Path::new(&path),
+                    cc.egui_ctx.clone(),
+                )?);
+            }
             if args.iter().any(|a| a == "--background") {
                 app.keep_monitoring = true;
             }
